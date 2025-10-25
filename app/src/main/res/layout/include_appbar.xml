@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.appbar.MaterialToolbar
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/appBar"
+    android:layout_width="match_parent"
+    android:layout_height="56dp"
+    android:background="@color/umich_blue"
+    android:elevation="4dp"
+    app:title="TapeWear"
+    app:titleTextColor="@color/tw_bg"
+    app:navigationIconTint="@color/tw_bg"
+    app:titleCentered="true" />

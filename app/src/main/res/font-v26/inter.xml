@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<font-family xmlns:tools="http://schemas.android.com/tools"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+    <font
+        android:fontProviderPackage="com.google.android.gms"
+        android:fontProviderCerts="@array/com_google_android_gms_fonts_certs"
+        tools:ignore="FontValidation" />
+    <font
+        android:fontProviderAuthority="com.google.android.gms.fonts"
+        android:fontProviderPackage="com.google.android.gms"
+        android:fontProviderQuery="name=Inter&amp;weight=700"
+        android:fontProviderCerts="@array/com_google_android_gms_fonts_certs"
+        tools:ignore="FontValidation" />
+</font-family>

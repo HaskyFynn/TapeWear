@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootAuth"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/umich_blue">
+
+    <!-- Top app bar -->
+    <include
+        android:id="@+id/appbarInc"
+        layout="@layout/include_appbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <!-- DEMO image (hidden by default) -->
+    <ImageView
+        android:id="@+id/demoImageAuth"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@drawable/sample"
+        android:visibility="gone" />
+
+    <!-- Live camera preview -->
+    <TextureView
+        android:id="@+id/textureViewAuth"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Opaque blue overlay with maize ROI -->
+    <com.example.tapewear.OverlayView
+        android:id="@+id/overlayViewAuth"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Top instructions -->
+    <TextView
+        android:id="@+id/topMessageAuth"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="84dp"
+        android:paddingHorizontal="20dp"
+        android:text="Select a pattern, align it in the box, then tap Capture"
+        android:textColor="@color/tw_bg"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <!-- Flash hint chip -->
+    <TextView
+        android:id="@+id/flashHintAuth"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="108dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:background="@drawable/bg_flash_hint"
+        android:text="Flash will activate for this shot"
+        android:textColor="#000000"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
+    <!-- Latest ROI thumb (optional) -->
+    <ImageView
+        android:id="@+id/previewThumbAuth"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:scaleType="centerCrop"
+        android:background="#FFFFFFFF"
+        android:elevation="2dp"
+        android:padding="4dp"
+        android:visibility="gone" />
+
+    <!-- Bottom panel -->
+    <LinearLayout
+        android:id="@+id/bottomPanelAuth"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingBottom="28dp"
+        android:gravity="center_horizontal"
+        android:animateLayoutChanges="true">
+
+        <!-- Row: pattern selector + night/flash -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pattern:"
+                android:textColor="@color/tw_bg"
+                android:textSize="14sp" />
+
+            <Space
+                android:layout_width="8dp"
+                android:layout_height="1dp" />
+
+            <Spinner
+                android:id="@+id/patternSpinner"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:popupBackground="@color/tw_bg" />
+
+            <Space
+                android:layout_width="12dp"
+                android:layout_height="1dp" />
+
+            <CheckBox
+                android:id="@+id/flashCheck"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Night mode"
+                android:textColor="@color/tw_bg" />
+        </LinearLayout>
+
+        <!-- Action slot: button OR progress -->
+        <FrameLayout
+            android:id="@+id/actionSlotAuth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp">
+
+            <Button
+                android:id="@+id/btnCaptureAuth"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="Capture"
+                android:textAllCaps="false"
+                android:textSize="16sp"
+                android:backgroundTint="@color/umich_blue"
+                android:textColor="@color/tw_bg" />
+
+            <LinearLayout
+                android:id="@+id/progressSlotAuth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ProgressBar
+                    android:id="@+id/progressBarAuth"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="8dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:indeterminate="false" />
+
+                <TextView
+                    android:id="@+id/progressLineAuth"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="10dp"
+                    android:text="Authenticating…"
+                    android:textColor="@color/tw_bg"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Result card -->
+        <LinearLayout
+            android:id="@+id/resultCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="0dp"
+            android:visibility="gone"
+            android:animateLayoutChanges="true">
+
+            <TextView
+                android:id="@+id/verdictText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Verdict: —"
+                android:textStyle="bold"
+                android:textColor="@color/tw_bg"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/confidenceText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Confidence: —"
+                android:textColor="@color/tw_bg"
+                android:textSize="14sp" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

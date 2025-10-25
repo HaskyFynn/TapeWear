@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">TapeWear</string>
+    <string name="tapewear_logo">TapeWear logo</string>
+    <string name="tapewear">TapeWear</string>
+    <string name="simple_and_secure">Simple and secure</string>
+    <string name="register">Register</string>
+    <string name="authenticate">Authenticate</string>
+    <string name="copyrighttapewear">© TapeWear</string>
+    <string name="position_your_puf_to_fill_the_capture_box_then_tap_capture">Position your PUF to fill the capture box, then tap Capture</string>
+</resources>

@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/rootDataCollection"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF">
+
+    <include
+        android:id="@+id/appbarIncDC"
+        layout="@layout/include_appbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <!-- Demo image -->
+    <ImageView
+        android:id="@+id/demoImageDC"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@drawable/sample"
+        android:contentDescription="@string/app_name"
+        android:visibility="gone" />
+
+    <TextureView
+        android:id="@+id/textureViewDC"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.example.tapewear.OverlayView
+        android:id="@+id/overlayViewDC"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- top text -->
+    <TextView
+        android:id="@+id/topMessageDC"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="84dp"
+        android:text="@string/data_collection_day"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:textSize="18sp" />
+
+    <TextView
+        android:id="@+id/flashHintDC"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="112dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp"
+        android:text="Torch ON"
+        android:textColor="#000000"
+        android:background="@drawable/bg_flash_hint"
+        android:visibility="gone"
+        tools:ignore="HardcodedText" />
+
+    <!-- tiny preview -->
+    <ImageView
+        android:id="@+id/previewThumbDC"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
+        android:scaleType="centerCrop"
+        android:background="#FFFFFFFF"
+        android:elevation="2dp"
+        android:padding="4dp"
+        android:visibility="gone"
+        android:contentDescription="@string/app_name" />
+
+    <TextView
+        android:id="@+id/previewLabelDC"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="112dp"
+        android:layout_marginEnd="12dp"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:text="@string/img_jpg"
+        android:visibility="gone" />
+
+    <!-- bottom panel -->
+    <LinearLayout
+        android:id="@+id/bottomPanelDC"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingBottom="28dp"
+        android:animateLayoutChanges="true"
+        android:gravity="center_horizontal">
+
+        <!-- toggles row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <CheckBox
+                android:id="@+id/flashCheckDC"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:minHeight="48dp"
+                android:text="Night mode"
+                android:textColor="#FFFFFF"
+                tools:ignore="HardcodedText" />
+
+            <Space
+                android:layout_width="16dp"
+                android:layout_height="1dp" />
+
+            <TextView
+                android:id="@+id/angleStatusDC"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Angle 1 of 3"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:paddingEnd="10dp"
+                tools:ignore="HardcodedText,RtlSymmetry" />
+
+            <TextView
+                android:id="@+id/angleHintDC"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Hold frontal"
+                android:textColor="#FFFFFF"
+                tools:ignore="HardcodedText" />
+        </LinearLayout>
+
+        <!-- actions -->
+        <Button
+            android:id="@+id/btnStartTagDC"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Start Tag Session"
+            android:textAllCaps="false"
+            android:backgroundTint="#0B5FFF"
+            android:textColor="#FFFFFF"
+            android:layout_marginTop="10dp"
+            tools:ignore="HardcodedText" />
+
+        <LinearLayout
+            android:id="@+id/progressSlotDC"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <ProgressBar
+                android:id="@+id/progressBarDC"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="8dp"
+                android:max="100"
+                android:progress="0"
+                android:indeterminate="false" />
+
+            <TextView
+                android:id="@+id/progressLineDC"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="10dp"
+                android:text="Preparing"
+                android:textColor="#0B1F3A"
+                android:textSize="14sp"
+                tools:ignore="HardcodedText" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnExportDC"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Export session zip"
+            android:textAllCaps="false"
+            android:backgroundTint="#0B5FFF"
+            android:textColor="#FFFFFF"
+            android:layout_marginTop="10dp"
+            android:visibility="gone"
+            tools:ignore="HardcodedText" />
+    </LinearLayout>
+
+</FrameLayout>

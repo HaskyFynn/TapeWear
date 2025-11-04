@@ -12,9 +12,9 @@
         <item name="colorSurface">@color/tw_bg</item>
         <item name="colorOnSurface">@color/tw_text_primary</item>
 
-        <!-- Typography -->
-        <item name="android:fontFamily">@font/inter</item>
-        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
+
 
         <!-- Buttons default -->
         <item name="materialButtonStyle">@style/TW.Button</item>

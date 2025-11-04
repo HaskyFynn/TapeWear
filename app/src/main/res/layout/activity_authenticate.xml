@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="@color/umich_blue">
 
-    <!-- Top app bar -->
+    <!-- Top app bar (optional) -->
     <include
         android:id="@+id/appbarInc"
         layout="@layout/include_appbar"
@@ -27,7 +27,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Opaque blue overlay with maize ROI -->
+    <!-- ROI overlay -->
     <com.example.tapewear.OverlayView
         android:id="@+id/overlayViewAuth"
         android:layout_width="match_parent"
@@ -41,22 +41,22 @@
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="84dp"
         android:paddingHorizontal="20dp"
-        android:text="Select a pattern, align it in the box, then tap Capture"
+        android:text="Select a pattern, align it in the box, then tap Authenticate"
         android:textColor="@color/tw_bg"
         android:textSize="18sp"
         android:textStyle="bold" />
 
-    <!-- Flash hint chip -->
+    <!-- Optional flash hint -->
     <TextView
         android:id="@+id/flashHintAuth"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="108dp"
+        android:layout_marginTop="112dp"
         android:paddingHorizontal="12dp"
-        android:paddingVertical="6dp"
+        android:paddingVertical="8dp"
         android:background="@drawable/bg_flash_hint"
-        android:text="Flash will activate for this shot"
+        android:text="Torch ON"
         android:textColor="#000000"
         android:textStyle="bold"
         android:visibility="gone" />
@@ -107,9 +107,11 @@
             <Spinner
                 android:id="@+id/patternSpinner"
                 android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:layout_weight="1"
-                android:popupBackground="@color/tw_bg" />
+                android:popupBackground="@color/tw_bg"
+                android:paddingVertical="8dp" />
 
             <Space
                 android:layout_width="12dp"
@@ -118,7 +120,8 @@
             <CheckBox
                 android:id="@+id/flashCheck"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
+                android:minHeight="48dp"
                 android:text="Night mode"
                 android:textColor="@color/tw_bg" />
         </LinearLayout>
@@ -134,7 +137,7 @@
                 android:id="@+id/btnCaptureAuth"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:text="Capture"
+                android:text="Authenticate"
                 android:textAllCaps="false"
                 android:textSize="16sp"
                 android:backgroundTint="@color/umich_blue"

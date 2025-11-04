@@ -56,30 +56,52 @@
 
         <!-- Buttons -->
         <LinearLayout
+            android:id="@+id/btnRow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="40dp">
+            android:orientation="vertical"
+            android:layout_marginTop="32dp"
+            android:gravity="center_horizontal">
 
-            <Button
-                android:id="@+id/btnGoRegister"
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:backgroundTint="#007AFF"
-                android:text="@string/register"
-                android:textColor="#000000" />
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnGoRegister"
+                    android:layout_width="160dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_primary_btn"
+                    android:text="@string/register"
+                    android:textColor="@color/tw_bg" />
+
+                <Space
+                    android:layout_width="12dp"
+                    android:layout_height="1dp" />
+
+                <Button
+                    android:id="@+id/btnGoAuthenticate"
+                    android:layout_width="160dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_dark_btn"
+                    android:text="@string/authenticate"
+                    android:textColor="@android:color/white"/>
+            </LinearLayout>
 
             <Space
-                android:layout_width="12dp"
-                android:layout_height="1dp" />
+                android:layout_width="1dp"
+                android:layout_height="12dp" />
 
+            <!-- New: Data Collection button -->
             <Button
-                android:id="@+id/btnGoAuthenticate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/authenticate"
-                android:backgroundTint="#111111"
-                android:textColor="#FFFFFF"/>
+                android:id="@+id/btnGoDataCollection"
+                android:layout_width="332dp"
+                android:layout_height="48dp"
+                android:background="@drawable/bg_accent_btn"
+                android:contentDescription="@string/collect_dataset"
+                android:text="@string/collect_dataset"
+                android:textColor="#A1887F" />
         </LinearLayout>
     </LinearLayout>
 

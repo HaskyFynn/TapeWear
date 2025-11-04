@@ -27,5 +27,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnGoAuthenticate).setOnClickListener {
             startActivity(Intent(this, AuthenticateActivity::class.java))
         }
+        findViewById<Button>(R.id.btnGoDataCollection).setOnClickListener {
+            startActivity(Intent(this, DataCollectionActivity::class.java))
+        }
+
     }
 }

@@ -1,40 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rootRegister"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/umich_blue">
 
+    <!-- Top app bar (optional; remove if you don't have it) -->
     <include
         android:id="@+id/appbarInc"
         layout="@layout/include_appbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
 
-
-    <!-- Background: demo image OR live camera -->
+    <!-- DEMO image (hidden by default) -->
     <ImageView
         android:id="@+id/demoImage"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:src="@drawable/sample"
-        android:visibility="gone"
-        tools:ignore="ContentDescription" />
+        android:visibility="gone" />
 
+    <!-- Live camera preview -->
     <TextureView
         android:id="@+id/textureView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Red ROI overlay -->
+    <!-- Overlay: draws maize ROI + status text -->
     <com.example.tapewear.OverlayView
         android:id="@+id/overlayView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Top instruction (centered) -->
+    <!-- Top instruction line -->
     <TextView
         android:id="@+id/topMessage"
         android:layout_width="wrap_content"
@@ -42,69 +41,89 @@
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="84dp"
         android:paddingHorizontal="20dp"
-        android:text="@string/position_your_puf_to_fill_the_capture_box_then_tap_capture"
+        android:text="Day registration"
         android:textColor="@color/tw_bg"
         android:textSize="18sp"
         android:textStyle="bold" />
 
-    <!-- Flash hint chip (subtle) -->
+    <!-- Flash hint chip (shown in Night/torch situations) -->
     <TextView
         android:id="@+id/flashHint"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="104dp"
+        android:layout_marginTop="112dp"
         android:paddingHorizontal="12dp"
-        android:paddingVertical="6dp"
+        android:paddingVertical="8dp"
         android:background="@drawable/bg_flash_hint"
-        android:text="Use flash for this shot"
+        android:text="Torch ON"
         android:textColor="#000000"
         android:textStyle="bold"
         android:visibility="gone" />
 
-    <!-- Latest ROI thumbnail -->
+    <!-- Latest full-frame/thumb preview (optional) -->
     <ImageView
         android:id="@+id/previewThumb"
         android:layout_width="96dp"
         android:layout_height="96dp"
         android:layout_gravity="top|end"
-        android:layout_margin="12dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="12dp"
         android:scaleType="centerCrop"
         android:background="#FFFFFFFF"
         android:elevation="2dp"
         android:padding="4dp"
-        android:visibility="gone"
-        tools:ignore="ContentDescription" />
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/previewLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
-        android:layout_marginTop="116dp"
+        android:layout_marginTop="112dp"
         android:layout_marginEnd="12dp"
-        android:textColor="#444444"
+        android:textColor="@color/tw_bg"
         android:textSize="12sp"
         android:visibility="gone" />
 
-    <!-- Bottom action area: one clean bar, no clutter -->
+    <!-- Bottom controls -->
     <LinearLayout
-        android:id="@+id/actionArea"
+        android:id="@+id/bottomPanelRegister"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:paddingHorizontal="20dp"
         android:paddingBottom="28dp"
-        android:gravity="center_horizontal">
+        android:gravity="center_horizontal"
+        android:animateLayoutChanges="true">
 
-        <!-- Where the button OR progress will appear -->
+        <!-- Row: Night mode + Data Collection toggles -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <CheckBox
+                android:id="@+id/flashCheckRegister"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:minHeight="48dp"
+                android:text="Night mode (Torch ON)"
+                android:textColor="@color/tw_bg" />
+        </LinearLayout>
+
+
+        <!-- Action slot: Capture OR Progress -->
         <FrameLayout
             android:id="@+id/actionSlot"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content">
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp">
 
-            <!-- Capture button (shown first) -->
             <Button
                 android:id="@+id/btnCapture"
                 android:layout_width="match_parent"
@@ -112,12 +131,9 @@
                 android:text="Capture"
                 android:textAllCaps="false"
                 android:textSize="16sp"
-                android:backgroundTint="#007AFF"
-                android:textColor="#FFFFFF"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="8dp" />
+                android:backgroundTint="@color/umich_blue"
+                android:textColor="@color/tw_bg" />
 
-            <!-- Progress bar (hidden until capture starts) -->
             <LinearLayout
                 android:id="@+id/progressSlot"
                 android:layout_width="match_parent"
@@ -140,23 +156,24 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center_horizontal"
                     android:layout_marginTop="10dp"
-                    android:text="Working…"
-                    android:textColor="#111111"
+                    android:text="Preparing…"
+                    android:textColor="@color/tw_bg"
                     android:textSize="14sp" />
             </LinearLayout>
         </FrameLayout>
 
-        <!-- Export (hidden until registration completes) -->
+        <!-- Export button -->
         <Button
             android:id="@+id/btnExport"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:text="Export session"
+            android:layout_height="48dp"
+            android:layout_marginTop="10dp"
+            android:text="Export session (.zip)"
             android:textAllCaps="false"
-            android:textSize="15sp"
-            android:layout_marginTop="12dp"
-            android:backgroundTint="#111111"
-            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:backgroundTint="@color/umich_blue"
+            android:textColor="@color/tw_bg"
             android:visibility="gone" />
     </LinearLayout>
+
 </FrameLayout>

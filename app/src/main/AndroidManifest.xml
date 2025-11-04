@@ -4,6 +4,8 @@
 
     <!-- Camera permission -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
 
 
     <!-- Declare that the app uses a camera (not strictly required) -->
@@ -27,6 +29,11 @@
         <activity
             android:name=".RegisterActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".DataCollectionActivity"
+            android:exported="false" />
+
 
         <activity
             android:name=".MainActivity"

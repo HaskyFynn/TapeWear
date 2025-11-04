@@ -19,6 +19,7 @@
     <color name="tw_bg">#FFFFFF</color>
     <color name="tw_divider">#1A000000</color>
 
+    <color name="btn_dark">#111111</color>
 
 
 </resources>

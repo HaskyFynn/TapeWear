@@ -7,4 +7,19 @@
     <string name="authenticate">Authenticate</string>
     <string name="copyrighttapewear">© TapeWear</string>
     <string name="position_your_puf_to_fill_the_capture_box_then_tap_capture">Position your PUF to fill the capture box, then tap Capture</string>
+    <string name="title_day_registration">Day registration</string>
+    <string name="torch_on">Torch ON</string>
+    <string name="cd_demo_image">Demo sample image</string>
+    <string name="cd_latest_preview">Latest captured preview</string>
+    <string name="angle_1_of_3">Angle 1 of 3</string>
+    <string name="hold_frontal">Hold frontal</string>
+    <string name="night_mode_torch">Night mode (Torch ON)</string>
+    <string name="data_collection">Data Collection</string>
+    <string name="collect_dataset">Collect Dataset</string>
+    <string name="start_tag_session">Start Tag Session</string>
+    <string name="capture">Capture</string>
+    <string name="preparing">Preparing…</string>
+    <string name="export_session_zip">Export session (.zip)</string>
+    <string name="data_collection_day">Data Collection Day</string>
+    <string name="img_jpg">img.jpg</string>
 </resources>

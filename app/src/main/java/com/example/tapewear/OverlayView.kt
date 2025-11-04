@@ -6,6 +6,7 @@ import android.util.AttributeSet
 import android.view.View
 import kotlin.math.min
 
+@Suppress("DEPRECATION")
 class OverlayView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
@@ -31,13 +32,8 @@ class OverlayView @JvmOverloads constructor(
     }
 
     private val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        // OPAQUE mask: covers everything except the ROI "hole"
         color = blue
         style = Paint.Style.FILL
-    }
-
-    private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -48,6 +44,7 @@ class OverlayView @JvmOverloads constructor(
     }
 
     private val roiRect = RectF()
+    private val maskPath = Path()
     private val dp get() = resources.displayMetrics.density
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -59,30 +56,30 @@ class OverlayView @JvmOverloads constructor(
         roiRect.set(left, top, left + size, top + size)
 
         borderPaint.strokeWidth = borderDp * dp
+
+        // Create a path for the mask. This is the key change.
+        // We create a path that is the entire view, then we subtract the ROI rectangle.
+        maskPath.reset()
+        maskPath.fillType = Path.FillType.EVEN_ODD
+        maskPath.addRect(0f, 0f, w.toFloat(), h.toFloat(), Path.Direction.CW)
+        val r = cornerDp * dp
+        maskPath.addRoundRect(roiRect, r, r, Path.Direction.CCW)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        val w = width.toFloat()
-        val h = height.toFloat()
+        // 1) Draw the mask path. This single command draws the blue overlay WITH the hole.
+        canvas.drawPath(maskPath, maskPaint)
+
+        // 2) Draw maize border around ROI
         val r = cornerDp * dp
-
-        // 1) Draw an OPAQUE blue layer over the whole screen
-        val save = canvas.saveLayer(null, null)
-        canvas.drawRect(0f, 0f, w, h, maskPaint)
-
-        // 2) Punch a CLEAR rounded hole where the ROI is
-        canvas.drawRoundRect(roiRect, r, r, clearPaint)
-        canvas.restoreToCount(save)
-
-        // 3) Draw maize border around ROI
         canvas.drawRoundRect(roiRect, r, r, borderPaint)
 
-        // 4) Optional status text above ROI (kept within screen)
+        // 3) Optional status text above ROI
         if (statusText.isNotEmpty()) {
             val y = (roiRect.top - 24f * dp).coerceAtLeast(24f * dp)
-            canvas.drawText(statusText, w / 2f, y, textPaint)
+            canvas.drawText(statusText, width / 2f, y, textPaint)
         }
     }
 

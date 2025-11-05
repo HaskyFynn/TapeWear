@@ -254,8 +254,8 @@ class DataCollectionActivity : AppCompatActivity() {
         angleStatusDC.text = "Angle $idx of 3"
         angleHintDC.text = when (currentAngle) {
             AngleStage.FRONT -> "Hold frontal"
-            AngleStage.TILT_LEFT -> "Tilt left"
-            AngleStage.TILT_RIGHT -> "Tilt right"
+            AngleStage.TILT_LEFT -> "Tilt left by 20–40 degrees"
+            AngleStage.TILT_RIGHT -> "Tilt right by 20–40 degrees"
             AngleStage.DONE -> "Complete"
         }
     }
@@ -278,7 +278,7 @@ class DataCollectionActivity : AppCompatActivity() {
         mainHandler.postDelayed({
             lockAeAwb(true)
             startAngleCapture()
-        }, 400)
+        }, 3000)
     }
 
     private fun startAngleCapture() {

@@ -171,7 +171,7 @@
                 android:layout_gravity="center_horizontal"
                 android:layout_marginTop="10dp"
                 android:text="Preparing"
-                android:textColor="#0B1F3A"
+                android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 tools:ignore="HardcodedText" />
         </LinearLayout>

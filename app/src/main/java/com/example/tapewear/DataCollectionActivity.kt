@@ -1,31 +1,17 @@
 package com.example.tapewear
 
 import android.Manifest
-import android.annotation.SuppressLint
+import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.SurfaceTexture
+import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
-import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
+import android.hardware.camera2.*
+import android.os.*
 import android.util.Size
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
-import android.widget.Button
-import android.widget.CheckBox
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -37,11 +23,22 @@ import java.util.Locale
 
 class DataCollectionActivity : AppCompatActivity() {
 
-    // Night mode toggle
+    // ---------- Tunables ----------
+    /** Target capture cadence for dataset (lower = more frames). */
+    private val CAPTURE_EVERY_MS = 120L    // ~8 fps loop (subject to device load)
+
+    /** Standardized crop output size for Roboflow (square is convenient). */
+    private val TARGET_CROP_W = 512
+    private val TARGET_CROP_H = 512
+
+    /** Duration per angle. */
+    private val perAngleMs = 10_000L
+
+    // ---------- State ----------
     private var nightMode = false
     private val DEMO_MODE = false
 
-    // Views match activity_data_collection.xml
+    // Views (IDs match activity_data_collection.xml)
     private lateinit var textureViewDC: TextureView
     private lateinit var overlayViewDC: OverlayView
     private lateinit var demoImageDC: ImageView
@@ -64,11 +61,10 @@ class DataCollectionActivity : AppCompatActivity() {
     // Session and tag dirs
     private lateinit var sessionDir: File
     private lateinit var tagRootDir: File
-    private lateinit var angleDirImages: File
-    private lateinit var angleDirLabels: File
+    private lateinit var angleDirCrops: File
 
     // Camera2
-    private val cameraManager by lazy { getSystemService(CAMERA_SERVICE) as CameraManager }
+    private val cameraManager by lazy { getSystemService(Context.CAMERA_SERVICE) as CameraManager }
     private var cameraDevice: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var cameraId: String = "0"
@@ -82,10 +78,6 @@ class DataCollectionActivity : AppCompatActivity() {
     private var currentAngle = AngleStage.FRONT
     private var currentTagIdx = 1
 
-    // durations
-    private val perAngleMs = 10_000L
-    private val perAngleStepMs = 220L
-
     // permissions
     private val perms = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -97,7 +89,7 @@ class DataCollectionActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_data_collection)
 
-        // bind
+        // Bind
         textureViewDC    = findViewById(R.id.textureViewDC)
         overlayViewDC    = findViewById(R.id.overlayViewDC)
         demoImageDC      = findViewById(R.id.demoImageDC)
@@ -129,7 +121,6 @@ class DataCollectionActivity : AppCompatActivity() {
             refreshHeader()
         }
 
-        // session root
         sessionDir = File(
             cacheDir,
             "session_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}"
@@ -153,7 +144,7 @@ class DataCollectionActivity : AppCompatActivity() {
             }
         }
 
-        // demo or real camera
+        // Demo vs real
         if (DEMO_MODE) {
             demoImageDC.visibility = View.VISIBLE
             textureViewDC.visibility = View.GONE
@@ -195,7 +186,7 @@ class DataCollectionActivity : AppCompatActivity() {
         }
     }
 
-    // camera bring up
+    // ---------- Camera bring up ----------
     private fun startWhenReady() {
         if (!hasCamPerm()) {
             perms.launch(arrayOf(Manifest.permission.CAMERA))
@@ -246,14 +237,13 @@ class DataCollectionActivity : AppCompatActivity() {
         )
     }
 
-    // header
+    // ---------- Headers ----------
     private fun refreshHeader() {
         topMessageDC.text = if (nightMode) "Data Collection Night" else "Data Collection Day"
         flashHintDC.visibility = if (nightMode) View.VISIBLE else View.GONE
         flashHintDC.text = if (nightMode) "Torch ON" else ""
     }
 
-    @SuppressLint("SetTextI18n")
     private fun updateAngleHeader() {
         val idx = when (currentAngle) {
             AngleStage.FRONT -> 1
@@ -270,9 +260,8 @@ class DataCollectionActivity : AppCompatActivity() {
         }
     }
 
-    // 3 angle flow
+    // ---------- 3-angle flow ----------
     private fun beginTagSession() {
-        // create tag dir
         val tagStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val tagName = "TAG%02d_%s".format(Locale.US, currentTagIdx, tagStamp)
         tagRootDir = File(sessionDir, "tag_$tagName").apply { mkdirs() }
@@ -292,7 +281,6 @@ class DataCollectionActivity : AppCompatActivity() {
         }, 400)
     }
 
-    @SuppressLint("SetTextI18n")
     private fun startAngleCapture() {
         progressBarDC.isIndeterminate = false
         progressBarDC.progress = 0
@@ -306,8 +294,8 @@ class DataCollectionActivity : AppCompatActivity() {
             else -> "angle_unknown"
         }
         val angleRoot = File(tagRootDir, angleName).apply { mkdirs() }
-        angleDirImages = File(angleRoot, "images").apply { mkdirs() }
-        angleDirLabels = File(angleRoot, "labels").apply { mkdirs() }
+        // Only crops now (no full images, no labels)
+        angleDirCrops = File(angleRoot, "crops").apply { mkdirs() }
 
         runAngleBurst()
     }
@@ -315,8 +303,8 @@ class DataCollectionActivity : AppCompatActivity() {
     private fun runAngleBurst() {
         val started = SystemClock.elapsedRealtime()
         var saved = 0
+
         val loop = object : Runnable {
-            @SuppressLint("SetTextI18n")
             override fun run() {
                 val elapsed = SystemClock.elapsedRealtime() - started
                 val pct = (elapsed.toFloat() / perAngleMs * 100).coerceIn(0f, 100f)
@@ -325,19 +313,26 @@ class DataCollectionActivity : AppCompatActivity() {
 
                 val full = snapshotFull()
                 if (full != null) {
-                    val base = "img_${System.currentTimeMillis()}"
-                    val imgFile = File(angleDirImages, "$base.jpg")
-                    FileOutputStream(imgFile).use { out ->
-                        full.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                    val crop = cropFromOverlay(full, overlayViewDC, textureViewDC, TARGET_CROP_W, TARGET_CROP_H)
+                    if (crop != null) {
+                        val base = "crop_${System.currentTimeMillis()}"
+                        val outFile = File(angleDirCrops, "$base.jpg")
+                        FileOutputStream(outFile).use { out ->
+                            crop.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                        }
+                        // tiny preview
+                        showPreviewFrom(crop, outFile.name)
+                        crop.recycle()
+                        saved++
                     }
-                    writeYoloLabelForOverlay(full.width, full.height, base, angleDirLabels)
-                    showPreviewFrom(full, imgFile.name)
                     full.recycle()
-                    saved++
                 }
 
-                if (elapsed < perAngleMs) mainHandler.postDelayed(this, perAngleStepMs)
-                else finishAngle(saved)
+                if (elapsed < perAngleMs) {
+                    mainHandler.postDelayed(this, CAPTURE_EVERY_MS)
+                } else {
+                    finishAngle(saved)
+                }
             }
         }
         mainHandler.post(loop)
@@ -356,14 +351,14 @@ class DataCollectionActivity : AppCompatActivity() {
         if (currentAngle == AngleStage.DONE) {
             packageTagZip()
         } else {
+            // give user 3s to re-pose
             mainHandler.postDelayed({
                 lockAeAwb(true)
                 startAngleCapture()
-            }, 5000)
+            }, 3000L)
         }
     }
 
-    @SuppressLint("SetTextI18n")
     private fun packageTagZip() {
         overlayViewDC.statusText = "Packaging tag"
         progressLineDC.text = "Packaging tag"
@@ -391,7 +386,7 @@ class DataCollectionActivity : AppCompatActivity() {
         }
     }
 
-    // helpers
+    // ---------- Helpers ----------
     private fun snapshotFull(): Bitmap? = try {
         if (DEMO_MODE) {
             val d = demoImageDC.drawable as? BitmapDrawable ?: return null
@@ -403,38 +398,48 @@ class DataCollectionActivity : AppCompatActivity() {
         }
     } catch (_: Exception) { null }
 
-    @SuppressLint("UseKtx")
-    private fun showPreviewFrom(full: Bitmap, name: String) {
+    /**
+     * Crop the region inside the overlay box, mapped from view coords to bitmap coords.
+     * Optionally resize to TARGET_CROP_W x TARGET_CROP_H to standardize dataset.
+     */
+    private fun cropFromOverlay(
+        full: Bitmap,
+        overlay: OverlayView,
+        textureView: TextureView,
+        outW: Int,
+        outH: Int
+    ): Bitmap? {
+        val vr = overlay.getFramingBox()
+        val vw = textureView.width.coerceAtLeast(1)
+        val vh = textureView.height.coerceAtLeast(1)
+
+        // Map view-rect -> bitmap-rect
+        val left   = (vr.left   * full.width  / vw).toInt().coerceIn(0, full.width - 1)
+        val top    = (vr.top    * full.height / vh).toInt().coerceIn(0, full.height - 1)
+        val right  = (vr.right  * full.width  / vw).toInt().coerceIn(left + 1, full.width)
+        val bottom = (vr.bottom * full.height / vh).toInt().coerceIn(top + 1, full.height)
+
+        val w = (right - left).coerceAtLeast(2)
+        val h = (bottom - top).coerceAtLeast(2)
+        if (w <= 1 || h <= 1) return null
+
+        return try {
+            val crop = Bitmap.createBitmap(full, left, top, w, h)
+            if (crop.width == outW && crop.height == outH) crop
+            else Bitmap.createScaledBitmap(crop, outW, outH, true).also { crop.recycle() }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun showPreviewFrom(bmp: Bitmap, name: String) {
         val w = 96
-        val h = (full.height * (w.toFloat() / full.width)).toInt().coerceAtLeast(1)
-        val thumb = Bitmap.createScaledBitmap(full, w, h, true)
+        val h = (bmp.height * (w.toFloat() / bmp.width)).toInt().coerceAtLeast(1)
+        val thumb = Bitmap.createScaledBitmap(bmp, w, h, true)
         previewThumbDC.setImageBitmap(thumb)
         previewLabelDC.text = name
         if (previewThumbDC.visibility != View.VISIBLE) fadeShow(previewThumbDC)
         if (previewLabelDC.visibility != View.VISIBLE) fadeShow(previewLabelDC)
-    }
-
-    private fun writeYoloLabelForOverlay(imgW: Int, imgH: Int, base: String, outDir: File) {
-        val vr = overlayViewDC.getFramingBox()
-        val vw = textureViewDC.width.coerceAtLeast(1)
-        val vh = textureViewDC.height.coerceAtLeast(1)
-
-        val left   = (vr.left   * imgW / vw).toInt().coerceIn(0, imgW - 1)
-        val top    = (vr.top    * imgH / vh).toInt().coerceIn(0, imgH - 1)
-        val right  = (vr.right  * imgW / vw).toInt().coerceIn(left + 1, imgW)
-        val bottom = (vr.bottom * imgH / vh).toInt().coerceIn(top + 1, imgH)
-
-        val bx = (left + right) / 2.0
-        val by = (top + bottom) / 2.0
-        val bw = (right - left).toDouble()
-        val bh = (bottom - top).toDouble()
-
-        val cxN = (bx / imgW).coerceIn(0.0, 1.0)
-        val cyN = (by / imgH).coerceIn(0.0, 1.0)
-        val wN  = (bw / imgW).coerceIn(0.0, 1.0)
-        val hN  = (bh / imgH).coerceIn(0.0, 1.0)
-
-        File(outDir, "$base.txt").writeText("0 $cxN $cyN $wN $hN\n")
     }
 
     private fun setTorch(on: Boolean) {
@@ -485,20 +490,17 @@ class DataCollectionActivity : AppCompatActivity() {
         startActivity(chooser)
     }
 
-    // tiny UI helpers
-    @SuppressLint("UseKtx")
+    // UI helpers
     private fun fadeShow(v: View, dur: Long = 180) {
         if (v.visibility == View.VISIBLE) return
         v.alpha = 0f
         v.visibility = View.VISIBLE
         v.animate().alpha(1f).setDuration(dur).start()
     }
-
     private fun fadeHide(v: View, dur: Long = 180) {
         if (v.visibility != View.VISIBLE) return
         v.animate().alpha(0f).setDuration(dur).withEndAction { v.visibility = View.GONE }.start()
     }
-
     private fun fadeDisable(v: View, dur: Long = 120) { v.isEnabled = false; v.animate().alpha(0.4f).setDuration(dur).start() }
     private fun fadeEnable(v: View, dur: Long = 120) { v.isEnabled = true; v.animate().alpha(1f).setDuration(dur).start() }
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()

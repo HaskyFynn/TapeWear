@@ -87,8 +87,9 @@ object ModelManager {
             val expanded = BoxOps.expand(chosen.box, expandBox, bmp.width, bmp.height)
             val roi = BoxOps.clamp(expanded, bmp.width, bmp.height)
 
-            val emb = embed(bmp, roi)
+            val emb = embedder.embed(bmp, roi)
             embList.add(emb)
+
 
             if (embList.size >= maxEmbeds) break
         }
@@ -118,7 +119,7 @@ object ModelManager {
             if (dets.isEmpty()) continue
             val chosen = chooseRoi(dets, bmp, overlay, texture, preferOverlayIoU = true)
             val roi = BoxOps.clamp(BoxOps.expand(chosen.box, expandBox, bmp.width, bmp.height), bmp.width, bmp.height)
-            embs += embed(bmp, roi)
+            embs += embedder.embed(bmp, roi)
             k++
             if (k >= take) break
         }

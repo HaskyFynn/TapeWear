@@ -3,10 +3,10 @@ package com.example.tapewear
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.SurfaceTexture
+import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
 import android.hardware.camera2.*
+import android.hardware.camera2.params.MeteringRectangle
 import android.os.*
 import android.util.Size
 import android.view.Surface
@@ -69,6 +69,11 @@ class RegisterActivity : AppCompatActivity() {
     private var hasFlash = false
     private var reqBuilder: CaptureRequest.Builder? = null
 
+    // zoom / focus helpers
+    private var sensorRect: Rect? = null
+    private var maxDigitalZoom: Float = 1f
+    private var currentZoom: Float = 1f
+
     private val perms = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { res ->
@@ -113,12 +118,10 @@ class RegisterActivity : AppCompatActivity() {
         overlayView.statusText  = "Align the tag in the box"
         refreshHeader()
 
-        // Keep header in sync when toggles change
         flashCheckRegister.setOnCheckedChangeListener { _, isChecked ->
             nightMode = isChecked
             refreshHeader()
         }
-
 
         // Session + subfolders
         sessionDir = File(cacheDir, "session_${System.currentTimeMillis()}").apply { mkdirs() }
@@ -128,7 +131,6 @@ class RegisterActivity : AppCompatActivity() {
 
         // Capture
         btnCapture.setOnClickListener {
-            // Re-read toggle states just before capture
             nightMode = flashCheckRegister.isChecked
             startRegistrationCapture()
         }
@@ -142,7 +144,6 @@ class RegisterActivity : AppCompatActivity() {
             textureView.visibility = View.GONE
             flashHint.visibility = if (nightMode) View.VISIBLE else View.GONE
             flashHint.text = if (nightMode) "Torch simulated (demo)" else ""
-            // default detector still needs overlay/texture (we provide overlay-only fallback)
             ModelManager.detector = ModelManager.OverlayDetector(overlayView, null)
             return
         }
@@ -153,8 +154,11 @@ class RegisterActivity : AppCompatActivity() {
                 .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
         } ?: cameraManager.cameraIdList.first()
 
-        hasFlash = cameraManager.getCameraCharacteristics(cameraId)
-            .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        val chars = cameraManager.getCameraCharacteristics(cameraId)
+        hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        maxDigitalZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+        if (maxDigitalZoom < 1f) maxDigitalZoom = 1f
 
         // Default detector == overlay box mapped into bitmap coords (YOLO drop-in later)
         ModelManager.detector = ModelManager.OverlayDetector(overlayView, textureView)
@@ -241,10 +245,7 @@ class RegisterActivity : AppCompatActivity() {
     // Header / chips
     // ------------------------------------------------------
     private fun refreshHeader() {
-        topMessage.text = when {
-            nightMode                       -> "Night registration • Torch ON"
-            else                            -> "Day registration"
-        }
+        topMessage.text = if (nightMode) "Night registration • Torch ON" else "Day registration"
         flashHint.visibility = if (nightMode) View.VISIBLE else View.GONE
         flashHint.text = if (nightMode) "Torch ON" else ""
     }
@@ -267,18 +268,18 @@ class RegisterActivity : AppCompatActivity() {
         overlayView.statusText = "HOLD STEADY"
         flashCheckRegister.visibility = View.GONE
 
-
         // Torch policy
         if (!DEMO_MODE && nightMode && hasFlash) setTorch(true)
 
-        // Warm-up (AE/AF/AWB settle)
+        // Warm-up (AE/AF/AWB settle) + zoom/focus
         mainHandler.postDelayed({
             lockAeAwb(true)
+            applyZoomAndFocusToOverlay()
             runRegistrationBurst()
         }, 800)
     }
 
-    /** Original registration burst with quality gating & saving best frames. */
+    /** Registration burst with quality gating & saving best frames. */
     private fun runRegistrationBurst() {
         val totalMs = 12_000L
         val stepMs  = 170L
@@ -327,9 +328,8 @@ class RegisterActivity : AppCompatActivity() {
         mainHandler.post(run)
     }
 
-
-
     private fun finishRegistration(kept: List<Sample>) {
+        clearZoomAndFocus()
         lockAeAwb(false)
         if (!DEMO_MODE && nightMode) setTorch(false)
 
@@ -380,18 +380,83 @@ class RegisterActivity : AppCompatActivity() {
         regRunning.set(false)
     }
 
+    // ------------------------------------------------------
+    // Zoom + focus helpers
+    // ------------------------------------------------------
+    private fun overlayToSensorRect(vw: Int, vh: Int): Rect? {
+        val sRect = sensorRect ?: return null
+        val box = overlayView.getFramingBox()
+        if (vw <= 0 || vh <= 0 || box.width() <= 0 || box.height() <= 0) return null
 
-    private fun showPreviewFrom(full: Bitmap, name: String) {
-        val w = 96
-        val h = (full.height * (w.toFloat() / full.width)).toInt().coerceAtLeast(1)
-        val thumb = Bitmap.createScaledBitmap(full, w, h, true)
-        previewThumb.setImageBitmap(thumb)           // keep 'thumb', not 'full'
-        previewThumb.visibility = View.VISIBLE
-        previewLabel.text = name
-        previewLabel.visibility = View.VISIBLE
+        val scaleX = sRect.width().toFloat() / vw.toFloat()
+        val scaleY = sRect.height().toFloat() / vh.toFloat()
+
+        val left = (box.left * scaleX).toInt().coerceIn(sRect.left, sRect.right - 1)
+        val top  = (box.top  * scaleY).toInt().coerceIn(sRect.top,  sRect.bottom - 1)
+        val right  = (box.right * scaleX).toInt().coerceIn(left + 1, sRect.right)
+        val bottom = (box.bottom * scaleY).toInt().coerceIn(top + 1,  sRect.bottom)
+        return Rect(left, top, right, bottom)
     }
 
+    /** Compute a crop region so the overlay fills most of the frame. */
+    private fun zoomCropToFitOverlay(margin: Float = 1.15f): Rect? {
+        val sRect = sensorRect ?: return null
+        val vw = textureView.width
+        val vh = textureView.height
+        val box = overlayView.getFramingBox()
+        if (vw <= 0 || vh <= 0 || box.width() <= 0 || box.height() <= 0) return null
 
+        val ovInSensor = overlayToSensorRect(vw, vh) ?: return null
+
+        val zoomX: Float = vw.toFloat() / box.width().toFloat()
+        val zoomY: Float = vh.toFloat() / box.height().toFloat()
+        var desired: Float = (min(zoomX, zoomY) / margin.toFloat())
+        desired = desired.coerceIn(1f, maxDigitalZoom)
+
+        val cx: Int = ovInSensor.centerX()
+        val cy: Int = ovInSensor.centerY()
+        val cropW: Int = (sRect.width().toFloat() / desired).toInt().coerceAtLeast(16)
+        val cropH: Int = (sRect.height().toFloat() / desired).toInt().coerceAtLeast(16)
+
+        val left: Int = (cx - cropW / 2).coerceIn(sRect.left, sRect.right - cropW)
+        val top: Int  = (cy - cropH / 2).coerceIn(sRect.top,  sRect.bottom - cropH)
+
+        currentZoom = desired
+        return Rect(left, top, left + cropW, top + cropH)
+    }
+
+    /** Apply SCALER_CROP_REGION + AF/AE metering rectangles centered on the overlay. */
+    private fun applyZoomAndFocusToOverlay() {
+        val s = session ?: return
+        val b = reqBuilder ?: return
+        val crop = zoomCropToFitOverlay() ?: return
+        val ovInSensor = overlayToSensorRect(textureView.width, textureView.height) ?: return
+
+        val weight = MeteringRectangle.METERING_WEIGHT_MAX - 1
+        val metRect = MeteringRectangle(ovInSensor, weight)
+        try {
+            b.set(CaptureRequest.SCALER_CROP_REGION, crop)
+            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            b.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf<MeteringRectangle>(metRect))
+            b.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf<MeteringRectangle>(metRect))
+            s.setRepeatingRequest(b.build(), null, mainHandler)
+            overlayView.statusText = "Auto-zoomed for macro focus"
+        } catch (_: Exception) {
+            // best effort
+        }
+    }
+
+    private fun clearZoomAndFocus() {
+        val s = session ?: return
+        val b = reqBuilder ?: return
+        try {
+            b.set(CaptureRequest.SCALER_CROP_REGION, sensorRect) // full sensor again
+            b.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf())
+            b.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf())
+            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            s.setRepeatingRequest(b.build(), null, mainHandler)
+        } catch (_: Exception) { }
+    }
 
     // ------------------------------------------------------
     // Helpers: camera/torch/locks/snapshot/metrics/labels
@@ -434,7 +499,7 @@ class RegisterActivity : AppCompatActivity() {
         } catch (_: Exception) { null }
     }
 
-    /** Full-view snapshot for saving training images. */
+    /** Full-view snapshot for saving training images (unused now but kept). */
     private fun snapshotFull(): Bitmap? {
         return try {
             if (DEMO_MODE) {
@@ -517,9 +582,9 @@ class RegisterActivity : AppCompatActivity() {
         return if (cnt == 0) 0.0 else sum.toDouble() / cnt
     }
 
-    /** Write a YOLO label (class 0) from the overlay ROI to labels/{base}.txt. */
+    /** YOLO label helper (kept for future use). */
     private fun writeYoloLabelForOverlay(imgW: Int, imgH: Int, baseName: String) {
-        val vr = overlayView.getFramingBox()      // in view coords
+        val vr = overlayView.getFramingBox()
         val viewW = textureView.width.coerceAtLeast(1)
         val viewH = textureView.height.coerceAtLeast(1)
 
@@ -548,7 +613,7 @@ class RegisterActivity : AppCompatActivity() {
     private fun exportSession() {
         val hasAny =
             (imagesDir.listFiles()?.isNotEmpty() == true) ||
-                    (cropsDir.listFiles()?.isNotEmpty() == true)
+            (cropsDir.listFiles()?.isNotEmpty() == true)
 
         if (!hasAny) {
             Toast.makeText(this, "No captures yet", Toast.LENGTH_SHORT).show()

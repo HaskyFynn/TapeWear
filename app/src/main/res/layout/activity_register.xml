@@ -5,7 +5,6 @@
     android:layout_height="match_parent"
     android:background="@color/umich_blue">
 
-    <!-- Top app bar (optional; remove if you don't have it) -->
     <include
         android:id="@+id/appbarInc"
         layout="@layout/include_appbar"
@@ -19,7 +18,8 @@
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:src="@drawable/sample"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:contentDescription="@null" /> <!-- decorative -->
 
     <!-- Live camera preview -->
     <TextureView
@@ -41,12 +41,12 @@
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="84dp"
         android:paddingHorizontal="20dp"
-        android:text="Day registration"
+        android:text="@string/register_day"
         android:textColor="@color/tw_bg"
         android:textSize="18sp"
         android:textStyle="bold" />
 
-    <!-- Flash hint chip (shown in Night/torch situations) -->
+    <!-- Flash hint chip -->
     <TextView
         android:id="@+id/flashHint"
         android:layout_width="wrap_content"
@@ -56,12 +56,12 @@
         android:paddingHorizontal="12dp"
         android:paddingVertical="8dp"
         android:background="@drawable/bg_flash_hint"
-        android:text="Torch ON"
+        android:text="@string/torch_on"
         android:textColor="#000000"
         android:textStyle="bold"
         android:visibility="gone" />
 
-    <!-- Latest full-frame/thumb preview (optional) -->
+    <!-- Latest thumb preview -->
     <ImageView
         android:id="@+id/previewThumb"
         android:layout_width="96dp"
@@ -73,7 +73,8 @@
         android:background="#FFFFFFFF"
         android:elevation="2dp"
         android:padding="4dp"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:contentDescription="@string/cd_preview_thumb" />
 
     <TextView
         android:id="@+id/previewLabel"
@@ -98,7 +99,29 @@
         android:gravity="center_horizontal"
         android:animateLayoutChanges="true">
 
-        <!-- Row: Night mode + Data Collection toggles -->
+        <!-- Slot picker (moved inside bottom panel) -->
+        <LinearLayout
+            android:id="@+id/slotRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/pattern_slot"
+                android:textColor="@color/tw_bg"
+                android:layout_marginEnd="12dp" />
+
+            <Spinner
+                android:id="@+id/spnSlot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Night mode toggle -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -112,10 +135,9 @@
                 android:layout_width="wrap_content"
                 android:layout_height="48dp"
                 android:minHeight="48dp"
-                android:text="Night mode (Torch ON)"
+                android:text="@string/night_mode_torch_on"
                 android:textColor="@color/tw_bg" />
         </LinearLayout>
-
 
         <!-- Action slot: Capture OR Progress -->
         <FrameLayout
@@ -128,7 +150,7 @@
                 android:id="@+id/btnCapture"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:text="Capture"
+                android:text="@string/capture"
                 android:textAllCaps="false"
                 android:textSize="16sp"
                 android:backgroundTint="@color/umich_blue"
@@ -156,7 +178,7 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center_horizontal"
                     android:layout_marginTop="10dp"
-                    android:text="Preparing…"
+                    android:text="@string/preparing"
                     android:textColor="@color/tw_bg"
                     android:textSize="14sp" />
             </LinearLayout>
@@ -168,7 +190,7 @@
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:layout_marginTop="10dp"
-            android:text="Export session (.zip)"
+            android:text="@string/export_zip"
             android:textAllCaps="false"
             android:textSize="16sp"
             android:backgroundTint="@color/umich_blue"

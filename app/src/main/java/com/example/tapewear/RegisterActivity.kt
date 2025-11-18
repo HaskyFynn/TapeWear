@@ -1,13 +1,12 @@
 package com.example.tapewear
 
 import android.Manifest
-import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.*
-import android.graphics.drawable.BitmapDrawable
 import android.hardware.camera2.*
-import android.hardware.camera2.params.MeteringRectangle
 import android.os.*
+import android.util.Log
 import android.util.Size
 import android.view.Surface
 import android.view.TextureView
@@ -16,29 +15,37 @@ import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.core.content.edit
+import androidx.core.graphics.scale
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 
 class RegisterActivity : AppCompatActivity() {
 
     companion object {
-        /** Torch-on policy for “Night registration.” */
         const val EXTRA_NIGHT_MODE = "extra_night_mode"
+        private const val TAG = "TapeWear_Reg"
     }
 
-    // ---- Runtime flags ----
-    private var nightMode: Boolean = false
-    private val DEMO_MODE = false
+    private var nightMode = false
 
-    // ---- Views (must exist in activity_register.xml) ----
+    // Toggle this when you move from emulator demo to real device
+    private val demoMode = true
+
+    // Demo video source
+    private var videoSource: VideoFrameSource? = null
+    private var currentVideoTimeMs: Long = 0L
+    private var lastDemoFrame: Bitmap? = null
+    private var videoFrameStepMs: Long = 150L   // about 9 fps
+
+    // Views
     private lateinit var textureView: TextureView
     private lateinit var overlayView: OverlayView
     private lateinit var demoImage: ImageView
-
     private lateinit var btnCapture: Button
     private lateinit var btnExport: Button
     private lateinit var previewThumb: ImageView
@@ -46,149 +53,217 @@ class RegisterActivity : AppCompatActivity() {
     private lateinit var flashHint: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var progressLine: TextView
-
     private lateinit var topMessage: TextView
-    private lateinit var actionSlot: FrameLayout
     private lateinit var progressSlot: LinearLayout
     private lateinit var flashCheckRegister: CheckBox
+    private lateinit var spnSlot: Spinner
 
-    // ---- Session dir ----
+    // Session dirs
     private lateinit var sessionDir: File
-    private lateinit var imagesDir: File
-    private lateinit var labelsDir: File
     private lateinit var cropsDir: File
 
-    // ---- Camera2 ----
-    private val cameraManager by lazy { getSystemService(Context.CAMERA_SERVICE) as CameraManager }
+    // Camera2
+    private val cameraManager by lazy { getSystemService(CAMERA_SERVICE) as CameraManager }
     private var cameraDevice: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var cameraId: String = "0"
     private var previewSize = Size(640, 480)
     private val mainHandler = Handler(Looper.getMainLooper())
-
     private var hasFlash = false
     private var reqBuilder: CaptureRequest.Builder? = null
 
-    // zoom / focus helpers
-    private var sensorRect: Rect? = null
-    private var maxDigitalZoom: Float = 1f
-    private var currentZoom: Float = 1f
+    // Background thread for capture and registration processing
+    private var backgroundThread: HandlerThread? = null
+    private var backgroundHandler: Handler? = null
+
+    // Prefs
+    private val prefs by lazy { getSharedPreferences("tape_prefs", MODE_PRIVATE) }
+    private var currentSlot: Int
+        get() = prefs.getInt("last_slot", 1)
+        set(v) { prefs.edit { putInt("last_slot", v) } }
 
     private val perms = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { res ->
         if (res.values.all { it }) startWhenReady()
-        else Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show()
+        else toast(getString(R.string.err_camera_perm))
     }
 
-    // ------------------------------------------------------
-    // Lifecycle
-    // ------------------------------------------------------
+    private val regRunning = AtomicBoolean(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_register)
 
-        // ----- Bind views FIRST -----
-        textureView   = findViewById(R.id.textureView)
-        overlayView   = findViewById(R.id.overlayView)
-        demoImage     = findViewById(R.id.demoImage)
+        // Bind views
+        textureView         = findViewById(R.id.textureView)
+        overlayView         = findViewById(R.id.overlayView)
+        demoImage           = findViewById(R.id.demoImage)
+        btnCapture          = findViewById(R.id.btnCapture)
+        btnExport           = findViewById(R.id.btnExport)
+        previewThumb        = findViewById(R.id.previewThumb)
+        previewLabel        = findViewById(R.id.previewLabel)
+        flashHint           = findViewById(R.id.flashHint)
+        progressBar         = findViewById(R.id.progressBar)
+        progressLine        = findViewById(R.id.
 
-        btnCapture    = findViewById(R.id.btnCapture)
-        btnExport     = findViewById(R.id.btnExport)
-        previewThumb  = findViewById(R.id.previewThumb)
-        previewLabel  = findViewById(R.id.previewLabel)
 
-        flashHint     = findViewById(R.id.flashHint)
-        progressBar   = findViewById(R.id.progressBar)
-        progressLine  = findViewById(R.id.progressLine)
+        progressLine)
+        topMessage          = findViewById(R.id.topMessage)
+        progressSlot        = findViewById(R.id.progressSlot)
+        flashCheckRegister  = findViewById(R.id.flashCheckRegister)
+        spnSlot             = findViewById(R.id.spnSlot)
 
-        topMessage    = findViewById(R.id.topMessage)
-        actionSlot    = findViewById(R.id.actionSlot)
-        progressSlot  = findViewById(R.id.progressSlot)
-        flashCheckRegister = findViewById(R.id.flashCheckRegister)
-
-        // ----- Then read intent flags & reflect into checkboxes -----
         nightMode = intent?.getBooleanExtra(EXTRA_NIGHT_MODE, false) == true
         flashCheckRegister.isChecked = nightMode
 
-        // Initial UI
-        btnCapture.visibility   = View.VISIBLE
+        // Slot spinner 1 to 10
+        val slotLabels = (1..10).map { getString(R.string.pattern_n, it) }
+        spnSlot.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            slotLabels
+        )
+        spnSlot.setSelection((currentSlot - 1).coerceIn(0, 9))
+        spnSlot.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?, view: View?, position: Int, id: Long
+            ) {
+                currentSlot = position + 1
+                ModelManager.setActiveSlot(currentSlot)
+                Log.d(TAG, "Active registration slot set to $currentSlot")
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
         progressSlot.visibility = View.GONE
         btnExport.visibility    = View.GONE
-        overlayView.statusText  = "Align the tag in the box"
+        overlayView.statusText  = getString(R.string.align_in_box)
         refreshHeader()
 
-        flashCheckRegister.setOnCheckedChangeListener { _, isChecked ->
-            nightMode = isChecked
+        flashCheckRegister.setOnCheckedChangeListener { _, checked ->
+            nightMode = checked
             refreshHeader()
         }
 
-        // Session + subfolders
+        // Session dirs
         sessionDir = File(cacheDir, "session_${System.currentTimeMillis()}").apply { mkdirs() }
-        imagesDir  = File(sessionDir, "images").apply { mkdirs() }
-        labelsDir  = File(sessionDir, "labels").apply { mkdirs() }
         cropsDir   = File(sessionDir, "crops").apply { mkdirs() }
 
-        // Capture
         btnCapture.setOnClickListener {
             nightMode = flashCheckRegister.isChecked
             startRegistrationCapture()
         }
 
-        // Export
-        btnExport.setOnClickListener { exportSession() }
-
-        // DEMO short-circuit
-        if (DEMO_MODE) {
-            demoImage.visibility = View.VISIBLE
-            textureView.visibility = View.GONE
-            flashHint.visibility = if (nightMode) View.VISIBLE else View.GONE
-            flashHint.text = if (nightMode) "Torch simulated (demo)" else ""
-            ModelManager.detector = ModelManager.OverlayDetector(overlayView, null)
-            return
+        btnExport.setOnClickListener {
+            exportSession()
         }
 
-        // Choose camera (prefer back)
-        cameraId = cameraManager.cameraIdList.firstOrNull { id ->
-            cameraManager.getCameraCharacteristics(id)
-                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
-        } ?: cameraManager.cameraIdList.first()
+        if (demoMode) {
+            Log.d(TAG, "RegisterActivity in DEMO mode using asset video")
+            textureView.visibility = View.GONE
+            demoImage.visibility   = View.VISIBLE
+            flashHint.visibility   = View.GONE
 
-        val chars = cameraManager.getCameraCharacteristics(cameraId)
-        hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-        sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-        maxDigitalZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
-        if (maxDigitalZoom < 1f) maxDigitalZoom = 1f
+            // If YOLO detector is not ready, fall back to overlay based detector
+            if (ModelManager.detector == null) {
+                Log.w(TAG, "ModelManager.detector was null, using OverlayDetector fallback (demo)")
+                ModelManager.detector = ModelManager.OverlayDetector(overlayView, null)
+            }
+        } else {
+            demoImage.visibility = View.GONE
+        }
 
-        // Default detector == overlay box mapped into bitmap coords (YOLO drop-in later)
-        ModelManager.detector = ModelManager.OverlayDetector(overlayView, textureView)
+        // Camera choice only if not in demo
+        if (!demoMode) {
+            try {
+                cameraId = cameraManager.cameraIdList.firstOrNull { id ->
+                    cameraManager.getCameraCharacteristics(id)
+                        .get(CameraCharacteristics.LENS_FACING) ==
+                            CameraCharacteristics.LENS_FACING_BACK
+                } ?: cameraManager.cameraIdList.first()
 
-        textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) = startWhenReady()
-            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
-            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
-            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                val chars = cameraManager.getCameraCharacteristics(cameraId)
+                hasFlash  = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                Log.d(TAG, "Using cameraId=$cameraId, hasFlash=$hasFlash")
+
+                textureView.surfaceTextureListener =
+                    object : TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(
+                            st: SurfaceTexture, w: Int, h: Int
+                        ) {
+                            startWhenReady()
+                        }
+                        override fun onSurfaceTextureSizeChanged(
+                            st: SurfaceTexture, w: Int, h: Int
+                        ) {}
+                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
+                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to configure camera: ${e.message}", e)
+                toast(getString(R.
+
+
+                string.err_preview))
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (!DEMO_MODE && textureView.isAvailable) startWhenReady()
+
+        if (demoMode) {
+            try {
+                videoSource = VideoFrameSource(this, "7.mp4")
+                currentVideoTimeMs = 0L
+                Log.d(TAG, "DEMO: video source created")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open demo video: ${e.message}", e)
+            }
+        }
+
+        backgroundThread = HandlerThread("ImageProcessor").apply { start() }
+        backgroundHandler = Handler(backgroundThread!!.looper)
+
+        if (!demoMode && textureView.isAvailable) {
+            startWhenReady()
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        if (!DEMO_MODE) {
+
+        if (demoMode) {
+            videoSource?.close()
+            videoSource = null
+            lastDemoFrame?.recycle()
+            lastDemoFrame = null
+        }
+
+        if (!demoMode) {
             setTorch(false)
-            session?.close(); session = null
-            cameraDevice?.close(); cameraDevice = null
+            try { session?.close() } catch (_: Exception) {}
+            session = null
+            try { cameraDevice?.close() } catch (_: Exception) {}
+            cameraDevice = null
+        }
+
+        backgroundThread?.quitSafely()
+        try {
+            backgroundThread?.join()
+        } catch (e: InterruptedException) {
+            Log.e(TAG, "Failed to stop background thread", e)
+        } finally {
+            backgroundThread = null
+            backgroundHandler = null
         }
     }
 
-    // ------------------------------------------------------
-    // Camera bring-up
-    // ------------------------------------------------------
+    // Camera bring up
+
     private fun startWhenReady() {
+        if (demoMode) return
         if (!hasCamPerm()) {
             perms.launch(arrayOf(Manifest.permission.CAMERA))
             return
@@ -198,17 +273,39 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun hasCamPerm() =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
 
     private fun openCamera() {
         try {
-            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
-                override fun onOpened(device: CameraDevice) { cameraDevice = device; startPreview() }
-                override fun onDisconnected(device: CameraDevice) { device.close(); cameraDevice = null }
-                override fun onError(device: CameraDevice, error: Int) { device.close(); cameraDevice = null }
-            }, mainHandler)
-        } catch (_: SecurityException) {
-            Toast.makeText(this, "Permission missing", Toast.LENGTH_SHORT).show()
+            Log.d(TAG, "Opening camera: $cameraId")
+            cameraManager.openCamera(
+                cameraId,
+                object : CameraDevice.StateCallback() {
+                    override fun onOpened(device: CameraDevice) {
+                        Log.d(TAG, "Camera opened")
+                        cameraDevice = device
+                        startPreview()
+                    }
+                    override fun onDisconnected(device: CameraDevice) {
+                        Log.w(TAG, "Camera disconnected")
+                        device.close()
+                        cameraDevice = null
+                    }
+                    override fun onError(device: CameraDevice, error: Int) {
+                        Log.e(TAG, "Camera error: $error")
+                        device.close()
+                        cameraDevice = null
+                        toast(getString(R.string.err_preview))
+                    }
+                },
+                backgroundHandler
+            )
+        } catch (e: SecurityException) {
+            toast(getString(R.string.err_perm_missing))
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open camera: ${e.message}", e)
+            toast(getString(R.string.err_preview))
         }
     }
 
@@ -220,7 +317,10 @@ class RegisterActivity : AppCompatActivity() {
 
         reqBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
             addTarget(previewSurface)
-            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            set(
+                CaptureRequest.CONTROL_AF_MODE,
+                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+            )
         }
 
         @Suppress("DEPRECATION")
@@ -229,147 +329,262 @@ class RegisterActivity : AppCompatActivity() {
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(s: CameraCaptureSession) {
                     session = s
-                    val req = reqBuilder?.build() ?: return
-                    s.setRepeatingRequest(req, null, mainHandler)
-                    overlayView.statusText = "Align your pattern in the box and tap Capture"
+                    try {
+                        val req = reqBuilder?.build()
+
+
+                        if (req != null) {
+                            s.setRepeatingRequest(req, null, backgroundHandler)
+                        }
+                        overlayView.statusText = getString(R.string.align_and_tap)
+                        Log.d(TAG, "Preview configured")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to start preview: ${e.message}", e)
+                        toast(getString(R.string.err_preview))
+                    }
                 }
+
                 override fun onConfigureFailed(s: CameraCaptureSession) {
-                    Toast.makeText(this@RegisterActivity, "Preview failed", Toast.LENGTH_SHORT).show()
+                    Log.e(TAG, "Preview configuration failed")
+                    toast(getString(R.string.err_preview))
                 }
             },
-            mainHandler
+            backgroundHandler
         )
     }
 
-    // ------------------------------------------------------
-    // Header / chips
-    // ------------------------------------------------------
+    // Header
+
     private fun refreshHeader() {
-        topMessage.text = if (nightMode) "Night registration • Torch ON" else "Day registration"
-        flashHint.visibility = if (nightMode) View.VISIBLE else View.GONE
-        flashHint.text = if (nightMode) "Torch ON" else ""
+        topMessage.text = if (nightMode) {
+            getString(R.string.register_night_torch)
+        } else {
+            getString(R.string.register_day)
+        }
+
+        flashHint.visibility =
+            if (!demoMode && nightMode) View.VISIBLE else View.GONE
+        flashHint.text =
+            if (nightMode && !demoMode) getString(R.string.torch_on) else ""
+
+        Log.d(TAG, "Header refreshed: nightMode=$nightMode, demoMode=$demoMode")
     }
 
-    // ------------------------------------------------------
     // Registration flow
-    // ------------------------------------------------------
-    private val regRunning = AtomicBoolean(false)
 
     private fun startRegistrationCapture() {
-        if (regRunning.getAndSet(true)) return
+        if (regRunning.getAndSet(true)) {
+            Log.w(TAG, "Registration already running, ignoring tap")
+            return
+        }
 
-        // UI lock
+        Log.d(TAG, "Starting registration capture (slot=$currentSlot, night=$nightMode)")
+
         btnCapture.isEnabled = false
         btnCapture.visibility = View.GONE
         progressSlot.visibility = View.VISIBLE
         btnExport.visibility = View.GONE
         progressBar.progress = 0
-        progressLine.text = "Preparing…"
-        overlayView.statusText = "HOLD STEADY"
+        progressBar.visibility = View.VISIBLE
+        progressLine.visibility = View.VISIBLE
+        progressLine.text = getString(R.string.preparing)
+        overlayView.statusText = getString(R.string.hold_steady)
         flashCheckRegister.visibility = View.GONE
 
-        // Torch policy
-        if (!DEMO_MODE && nightMode && hasFlash) setTorch(true)
+        if (!demoMode && nightMode && hasFlash) {
+            setTorch(true)
+        }
 
-        // Warm-up (AE/AF/AWB settle) + zoom/focus
         mainHandler.postDelayed({
             lockAeAwb(true)
-            applyZoomAndFocusToOverlay()
             runRegistrationBurst()
         }, 800)
     }
 
-    /** Registration burst with quality gating & saving best frames. */
     private fun runRegistrationBurst() {
-        val totalMs = 12_000L
+        val totalMs = 11_000L
         val stepMs  = 170L
         val started = SystemClock.elapsedRealtime()
-
         val kept = ArrayList<Sample>()
-        var prevSmall: Bitmap? = null
+        var prevFrame: Bitmap? = null
+        currentVideoTimeMs = 0L
+
+        Log.d(TAG, "Starting registration burst (night=$nightMode, demo=$demoMode)")
 
         val run = object : Runnable {
             override fun run() {
                 val elapsed = SystemClock.elapsedRealtime() - started
-                val pct = (elapsed.toFloat() / totalMs * 100).coerceIn(0f, 100f)
-                progressBar.progress = pct.toInt()
-                progressLine.text = "Registering… ${pct.toInt()}%"
 
                 val frame = snapshotCurrent()
                 if (frame != null) {
                     val luma = meanLuma(frame)
                     val blur = blurMetric(frame)
-                    val motion = prevSmall?.let { meanAbsDiff(it, frame) } ?: 0.0
-                    prevSmall?.recycle()
-                    prevSmall = frame.copy(frame.config ?: Bitmap.Config.ARGB_8888, false)
+                    val motion = prevFrame?.let { meanAbsDiff(it, frame) } ?: 0.0
 
-                    val (lo, hi) = if (nightMode) 80.0 to 220.0 else 60.0 to 200.0
-                    topMessage.text = when {
-                        luma < lo   -> "Too dark"
-                        luma > hi   -> "Too bright"
-                        motion > 12 -> "Hold steady…"
-                        else        -> "Good Lighting"
+                    prevFrame?.recycle()
+                    prevFrame = frame.copy(
+                        frame.config ?: Bitmap.Config.ARGB_8888,
+                        false
+                    )
+
+                    val assessment = Quality.assess(luma, blur, motion, nightMode)
+                    Log.d(
+                        TAG,
+                        "Frame sample: luma=%.1f, blur=%.1f, motion=%.1f -> pass=%s"
+                            .format(luma, blur, motion, assessment.pass)
+                    )
+
+                    mainHandler.post {
+                        topMessage.text = assessment.hint
                     }
 
-                    val pass = (luma in lo..hi) && blur >= 20.0 && motion <= 12
-                    if (pass && prevSmall != null) {
-                        kept.add(Sample(prevSmall!!, blur, luma, SystemClock.elapsedRealtime()))
+                    if (assessment.pass) {
+                        kept.add(
+                            Sample(
+                                bmp = frame,
+                                blur = blur,
+                                luma = luma,
+                                ts = SystemClock.elapsedRealtime()
+                            )
+                        )
+                    } else {
+
+
+                        frame.recycle()
                     }
+                }
+
+                mainHandler.post {
+                    val pct =
+                        (elapsed.toFloat() / totalMs * 100)
+                            .coerceIn(0f, 100f)
+                            .toInt()
+                    progressBar.progress = pct
+                    progressLine.text =
+                        getString(R.string.registering_percent, pct)
                 }
 
                 if (elapsed < totalMs) {
-                    mainHandler.postDelayed(this, stepMs)
+                    backgroundHandler?.postDelayed(this, stepMs)
                 } else {
-                    prevSmall?.recycle()
-                    finishRegistration(kept)
+                    prevFrame?.recycle()
+                    Log.d(TAG, "Registration burst finished, collected ${kept.size} samples.")
+                    mainHandler.post { finishRegistration(kept) }
                 }
             }
         }
-        mainHandler.post(run)
+
+        backgroundHandler?.post(run)
+    }
+
+    private fun saveDetectionsDebug(frames: List<Bitmap>) {
+        val det = ModelManager.detector ?: run {
+            Log.w(TAG, "saveDetectionsDebug: detector is null, skipping")
+            return
+        }
+
+        val outDir = File(
+            sessionDir,
+            "slot_${"%02d".format(currentSlot)}_bboxes"
+        ).apply { mkdirs() }
+
+        val boxPaint = Paint().apply {
+            color = Color.RED
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+        }
+
+        frames.forEachIndexed { idx, bmp ->
+            try {
+                val dets = det.detect(bmp)
+                if (dets.isEmpty()) return@forEachIndexed
+
+                val boxed = bmp.copy(Bitmap.Config.ARGB_8888, true)
+                val canvas = Canvas(boxed)
+
+                dets.forEach { d ->
+                    canvas.drawRect(d.box, boxPaint)
+                }
+
+                val f = File(
+                    outDir,
+                    "slot${"%02d".format(currentSlot)}_frame${"%03d".format(idx)}.jpg"
+                )
+                FileOutputStream(f).use { out ->
+                    boxed.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                }
+                boxed.recycle()
+            } catch (e: Exception) {
+                Log.w(TAG, "saveDetectionsDebug failed for frame $idx: ${e.message}")
+            }
+        }
     }
 
     private fun finishRegistration(kept: List<Sample>) {
-        clearZoomAndFocus()
-        lockAeAwb(false)
-        if (!DEMO_MODE && nightMode) setTorch(false)
+        Log.d(TAG, "finishRegistration: processing ${kept.size} samples for slot $currentSlot")
 
-        // 1) Enroll BEFORE recycling
+        lockAeAwb(false)
+        if (!demoMode && nightMode) setTorch(false)
+
         var usedForEnroll = 0
+        val frames = kept.map { it.bmp }
+
         try {
-            val keptBmps = kept.map { it.bmp }
+            ModelManager.setActiveSlot(currentSlot)
+            val t0 = SystemClock.elapsedRealtime()
+            saveDetectionsDebug(frames)
+
             usedForEnroll = ModelManager.enrollFromBitmaps(
-                frames = keptBmps,
-                overlay = overlayView,
-                texture = textureView,
+                context   = this,
+                frames    = frames,
                 maxEmbeds = 32,
-                expandBox = 1.10f,
-                preferOverlayIoU = true
+                slot      = currentSlot
+            )
+            val t1 = SystemClock.elapsedRealtime()
+            Log.d(
+                TAG,
+                "Enrollment created from $usedForEnroll frames in ${t1 - t0} ms."
             )
         } catch (e: Exception) {
-            overlayView.statusText = "Enroll error: ${e.message}"
+            overlayView.statusText = getString(
+                R.string.err_enroll,
+                e.message ?: ""
+            )
+            Log.e(TAG, "Enrollment failed: ${e.message}", e)
         }
 
-        // 2) Optional: persist best crops for your dataset
         val best = kept.sortedByDescending { it.blur }.take(48)
-        val toSave = if (best.size >= 32) best else kept.take(kept.size)
+        val toSave = if (best.size >= 32) best else kept
         var saved = 0
+
         toSave.forEachIndexed { idx, s ->
             try {
-                val file = File(cropsDir, "reg_${idx}_${s.ts}.jpg")
-                FileOutputStream(file).use { out ->
+                val f = File(
+                    cropsDir,
+                    "reg_${currentSlot}_${idx}_${s.ts}.jpg"
+                )
+                FileOutputStream(f).use { out ->
                     s.bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
                 }
                 saved++
-            } catch (_: Exception) { /* ignore */ }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to save one crop: ${e.message}")
+            }
+        }
+        Log.d(TAG, "Saved $saved out of ${toSave.size} crops for analysis.")
+
+        kept.forEach { it.
+
+
+            bmp.recycle() }
+
+        overlayView.statusText = if (usedForEnroll > 0) {
+            getString(R.string.saved_frames_and_model, saved, usedForEnroll)
+        } else {
+            getString(R.string.saved_frames_no_model, saved)
         }
 
-        // 3) Recycle AFTER enrollment & saving
-        kept.forEach { it.bmp.recycle() }
-
-        // 4) UI
-        val enrolledMsg = if (usedForEnroll > 0) " • model saved ($usedForEnroll samples)" else " • model not saved"
-        overlayView.statusText = "saved $saved frames$enrolledMsg"
-        topMessage.text = "Registration complete"
+        topMessage.text = getString(R.string.registration_complete)
         progressBar.progress = 100
         progressBar.visibility = View.GONE
         progressLine.visibility = View.GONE
@@ -380,90 +595,16 @@ class RegisterActivity : AppCompatActivity() {
         regRunning.set(false)
     }
 
-    // ------------------------------------------------------
-    // Zoom + focus helpers
-    // ------------------------------------------------------
-    private fun overlayToSensorRect(vw: Int, vh: Int): Rect? {
-        val sRect = sensorRect ?: return null
-        val box = overlayView.getFramingBox()
-        if (vw <= 0 || vh <= 0 || box.width() <= 0 || box.height() <= 0) return null
+    // Snapshot and metrics helpers
 
-        val scaleX = sRect.width().toFloat() / vw.toFloat()
-        val scaleY = sRect.height().toFloat() / vh.toFloat()
-
-        val left = (box.left * scaleX).toInt().coerceIn(sRect.left, sRect.right - 1)
-        val top  = (box.top  * scaleY).toInt().coerceIn(sRect.top,  sRect.bottom - 1)
-        val right  = (box.right * scaleX).toInt().coerceIn(left + 1, sRect.right)
-        val bottom = (box.bottom * scaleY).toInt().coerceIn(top + 1,  sRect.bottom)
-        return Rect(left, top, right, bottom)
-    }
-
-    /** Compute a crop region so the overlay fills most of the frame. */
-    private fun zoomCropToFitOverlay(margin: Float = 1.15f): Rect? {
-        val sRect = sensorRect ?: return null
-        val vw = textureView.width
-        val vh = textureView.height
-        val box = overlayView.getFramingBox()
-        if (vw <= 0 || vh <= 0 || box.width() <= 0 || box.height() <= 0) return null
-
-        val ovInSensor = overlayToSensorRect(vw, vh) ?: return null
-
-        val zoomX: Float = vw.toFloat() / box.width().toFloat()
-        val zoomY: Float = vh.toFloat() / box.height().toFloat()
-        var desired: Float = (min(zoomX, zoomY) / margin.toFloat())
-        desired = desired.coerceIn(1f, maxDigitalZoom)
-
-        val cx: Int = ovInSensor.centerX()
-        val cy: Int = ovInSensor.centerY()
-        val cropW: Int = (sRect.width().toFloat() / desired).toInt().coerceAtLeast(16)
-        val cropH: Int = (sRect.height().toFloat() / desired).toInt().coerceAtLeast(16)
-
-        val left: Int = (cx - cropW / 2).coerceIn(sRect.left, sRect.right - cropW)
-        val top: Int  = (cy - cropH / 2).coerceIn(sRect.top,  sRect.bottom - cropH)
-
-        currentZoom = desired
-        return Rect(left, top, left + cropW, top + cropH)
-    }
-
-    /** Apply SCALER_CROP_REGION + AF/AE metering rectangles centered on the overlay. */
-    private fun applyZoomAndFocusToOverlay() {
-        val s = session ?: return
-        val b = reqBuilder ?: return
-        val crop = zoomCropToFitOverlay() ?: return
-        val ovInSensor = overlayToSensorRect(textureView.width, textureView.height) ?: return
-
-        val weight = MeteringRectangle.METERING_WEIGHT_MAX - 1
-        val metRect = MeteringRectangle(ovInSensor, weight)
-        try {
-            b.set(CaptureRequest.SCALER_CROP_REGION, crop)
-            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-            b.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf<MeteringRectangle>(metRect))
-            b.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf<MeteringRectangle>(metRect))
-            s.setRepeatingRequest(b.build(), null, mainHandler)
-            overlayView.statusText = "Auto-zoomed for macro focus"
-        } catch (_: Exception) {
-            // best effort
-        }
-    }
-
-    private fun clearZoomAndFocus() {
-        val s = session ?: return
-        val b = reqBuilder ?: return
-        try {
-            b.set(CaptureRequest.SCALER_CROP_REGION, sensorRect) // full sensor again
-            b.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf())
-            b.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf())
-            b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-            s.setRepeatingRequest(b.build(), null, mainHandler)
-        } catch (_: Exception) { }
-    }
-
-    // ------------------------------------------------------
-    // Helpers: camera/torch/locks/snapshot/metrics/labels
-    // ------------------------------------------------------
     private fun setTorch(on: Boolean) {
         if (!hasFlash) return
-        try { cameraManager.setTorchMode(cameraId, on) } catch (_: Exception) {}
+        try {
+            cameraManager.setTorchMode(cameraId, on)
+            Log.d(TAG, "Torch set to $on")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set torch=$on: ${e.message}")
+        }
     }
 
     private fun lockAeAwb(lock: Boolean) {
@@ -473,52 +614,51 @@ class RegisterActivity : AppCompatActivity() {
             b.set(CaptureRequest.CONTROL_AE_LOCK, lock)
             b.set(CaptureRequest.CONTROL_AWB_LOCK, lock)
             s.setRepeatingRequest(b.build(), null, mainHandler)
-        } catch (_: Exception) {}
+            Log.d(TAG, "AE/AWB lock=$lock")
+        } catch (e: Exception) {
+            Log.w(TAG, "lockAeAwb($lock) failed: ${e.message}")
+        }
     }
 
-    /** Downscaled snapshot for fast metrics/gating. */
-    private fun snapshotCurrent(): Bitmap? {
-        return try {
-            if (DEMO_MODE) {
-                val d = demoImage.drawable as? BitmapDrawable ?: return null
-                val bw = d.bitmap.width
-                val bh = d.bitmap.height
-                val w = 320
-                val h = max(1, w * bh / bw)
-                Bitmap.createScaledBitmap(d.bitmap, w, h, true)
-            } else {
-                val vw = textureView.width
-                val vh = textureView.height
-                if (vw == 0 || vh == 0) return null
-                val longEdge = max(vw, vh)
-                val scaleDown = (longEdge / 720f).coerceAtLeast(1f)
-                val w = (vw / scaleDown).toInt().coerceAtLeast(64)
-                val h = (vh / scaleDown).toInt().coerceAtLeast(64)
-                textureView.getBitmap(w, h)
+    private fun snapshotCurrent(): Bitmap? = try {
+        if (demoMode) {
+            val vs = videoSource ?: return null
+
+            val raw = vs.frameAt(currentVideoTimeMs) ?: return null
+            currentVideoTimeMs += videoFrameStepMs
+
+            // Update on UI
+            mainHandler.post {
+                lastDemoFrame?.recycle()
+                lastDemoFrame = raw.copy(
+                    raw.config ?: Bitmap.Config.ARGB_8888,
+                    false
+                )
+                demoImage.setImageBitmap(lastDemoFrame)
             }
-        } catch (_: Exception) { null }
+
+            raw.scale(640, 640, filter = true)
+        } else {
+            textureView.getBitmap(640, 640)
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "snapshotCurrent failed: ${e.message}")
+        null
     }
 
-    /** Full-view snapshot for saving training images (unused now but kept). */
-    private fun snapshotFull(): Bitmap? {
-        return try {
-            if (DEMO_MODE) {
-                val d = demoImage.drawable as? BitmapDrawable ?: return null
-                d.bitmap.copy(d.bitmap.config ?: Bitmap.Config.ARGB_8888, false)
-            } else {
-                val vw = textureView.width
-                val vh = textureView.height
-                if (vw == 0 || vh == 0) null else textureView.getBitmap(vw, vh)
-            }
-        } catch (_: Exception) { null }
-    }
-
-    private data class Sample(val bmp: Bitmap, val blur: Double, val luma: Double, val ts: Long)
+    private data class Sample(
+        val bmp: Bitmap,
+        val blur: Double,
+        val luma: Double,
+        val ts: Long
+    )
 
     private fun meanLuma(bmp: Bitmap): Double {
-        val w = bmp.width; val h = bmp.height
+        val w = bmp.width
+        val h = bmp.height
         val row = IntArray(w)
-        var sum = 0L; var cnt = 0
+        var sum = 0L
+        var cnt = 0
         var y = 0
         while (y < h) {
             bmp.getPixels(row, 0, w, 0, y, w, 1)
@@ -537,11 +677,12 @@ class RegisterActivity : AppCompatActivity() {
         return if (cnt == 0) 128.0 else sum.toDouble() / cnt
     }
 
-    // Cheap sharpness estimate
     private fun blurMetric(bmp: Bitmap): Double {
-        val w = bmp.width; val h = bmp.height
+        val w = bmp.width
+        val h = bmp.height
         val row = IntArray(w)
-        var acc = 0.0; var cnt = 0
+        var acc = 0.0
+        var cnt = 0
         var y = 1
         while (y < h - 1) {
             bmp.getPixels(row, 0, w, 0, y, w, 1)
@@ -564,13 +705,16 @@ class RegisterActivity : AppCompatActivity() {
         val h = min(a.height, b.height)
         val rowA = IntArray(w)
         val rowB = IntArray(w)
-        var sum = 0L; var cnt = 0
+        var sum = 0L
+        var cnt = 0
         var y = 0
         while (y < h) {
             a.getPixels(rowA, 0, w, 0, y, w, 1)
             b.getPixels(rowB, 0, w, 0, y, w, 1)
             var x = 0
             while (x < w) {
+
+
                 val pa = rowA[x] and 0xFF
                 val pb = rowB[x] and 0xFF
                 sum += abs(pa - pb)
@@ -582,97 +726,52 @@ class RegisterActivity : AppCompatActivity() {
         return if (cnt == 0) 0.0 else sum.toDouble() / cnt
     }
 
-    /** YOLO label helper (kept for future use). */
-    private fun writeYoloLabelForOverlay(imgW: Int, imgH: Int, baseName: String) {
-        val vr = overlayView.getFramingBox()
-        val viewW = textureView.width.coerceAtLeast(1)
-        val viewH = textureView.height.coerceAtLeast(1)
+    // Export session
 
-        val left   = (vr.left   * imgW / viewW).toInt().coerceIn(0, imgW - 1)
-        val top    = (vr.top    * imgH / viewH).toInt().coerceIn(0, imgH - 1)
-        val right  = (vr.right  * imgW / viewW).toInt().coerceIn(left + 1, imgW)
-        val bottom = (vr.bottom * imgH / viewH).toInt().coerceIn(top + 1, imgH)
-
-        val bx = (left + right) / 2.0
-        val by = (top + bottom) / 2.0
-        val bw = (right - left).toDouble()
-        val bh = (bottom - top).toDouble()
-
-        val cxN = (bx / imgW).coerceIn(0.0, 1.0)
-        val cyN = (by / imgH).coerceIn(0.0, 1.0)
-        val wN  = (bw / imgW).coerceIn(0.0, 1.0)
-        val hN  = (bh / imgH).coerceIn(0.0, 1.0)
-
-        val labelFile = File(labelsDir, "$baseName.txt")
-        labelFile.writeText("0 $cxN $cyN $wN $hN\n")
-    }
-
-    // ------------------------------------------------------
-    // Export helpers
-    // ------------------------------------------------------
     private fun exportSession() {
-        val hasAny =
-            (imagesDir.listFiles()?.isNotEmpty() == true) ||
-            (cropsDir.listFiles()?.isNotEmpty() == true)
+        try {
+            val files = cropsDir.listFiles { f ->
+                f.isFile && (f.name.endsWith(".jpg", true) ||
+                        f.name.endsWith(".jpeg", true) ||
+                        f.name.endsWith(".png", true))
+            }?.toList().orEmpty()
 
-        if (!hasAny) {
-            Toast.makeText(this, "No captures yet", Toast.LENGTH_SHORT).show()
-            return
-        }
-        overlayView.statusText = "Packaging session…"
-        btnExport.isEnabled = false
-        btnExport.post {
-            try {
-                val zip = zipSession(sessionDir)
-                overlayView.statusText = "Session packaged"
-                shareZip(zip)
-            } catch (e: Exception) {
-                overlayView.statusText = "Export failed"
-                Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            } finally {
-                btnExport.isEnabled = true
+            if (files.isEmpty()) {
+                toast(getString(R.string.no_crops_to_export))
+                Log.d(TAG, "exportSession: no image crops in $cropsDir")
+                return
             }
+
+            val uris = files.map { file ->
+                FileProvider.getUriForFile(
+                    this,
+                    "${packageName}.fileprovider",
+                    file
+                )
+            }
+
+            val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "image/*"
+                putParcelableArrayListExtra(
+                    Intent.EXTRA_STREAM,
+                    ArrayList(uris)
+                )
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(
+                Intent.createChooser(
+                    send,
+                    getString(R.string.export_session_title)
+                )
+            )
+            Log.d(TAG, "exportSession: exported ${files.size} files")
+        } catch (e: Exception) {
+            Log.e(TAG, "exportSession failed: ${e.message}", e)
+            toast(getString(R.string.export_failed))
         }
     }
 
-    private fun zipSession(dir: File): File {
-        val zipFile = File(cacheDir, "${dir.name}.zip")
-        java.util.zip.ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
-            fun addFile(f: File, pathPrefix: String = "") {
-                if (!f.isFile) return
-                val entry = java.util.zip.ZipEntry("$pathPrefix${f.name}")
-                zos.putNextEntry(entry)
-                f.inputStream().use { it.copyTo(zos) }
-                zos.closeEntry()
-            }
-            fun addDir(d: File, prefix: String) {
-                d.listFiles()?.forEach { f ->
-                    if (f.isDirectory) addDir(f, "$prefix${f.name}/")
-                    else addFile(f, prefix)
-                }
-            }
-            addDir(dir, "")
-        }
-        return zipFile
-    }
-
-    private fun shareZip(zip: File) {
-        val uri = androidx.core.content.FileProvider.getUriForFile(
-            this, "${packageName}.fileprovider", zip
-        )
-        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-            type = "application/zip"
-            putExtra(android.content.Intent.EXTRA_STREAM, uri)
-            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            clipData = android.content.ClipData.newRawUri("session_zip", uri)
-        }
-        val resInfoList = packageManager.queryIntentActivities(send, PackageManager.MATCH_DEFAULT_ONLY)
-        for (ri in resInfoList) {
-            grantUriPermission(ri.activityInfo.packageName, uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val chooser = android.content.Intent.createChooser(send, "Share session zip").apply {
-            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        startActivity(chooser)
+    private fun toast(msg: String) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 }

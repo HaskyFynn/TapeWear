@@ -22,4 +22,83 @@
     <string name="export_session_zip">Export session (.zip)</string>
     <string name="data_collection_day">Data Collection Day</string>
     <string name="img_jpg">img.jpg</string>
+    <string name="register_day">Day registration</string>
+    <string name="night_mode_torch_on">Night mode (Torch ON)</string>
+    <string name="export_zip">Export session (.zip)</string>
+    <string name="pattern_slot">Pattern slot</string>
+    <string name="cd_preview_thumb">Latest capture thumbnail</string>
+
+
+
+    <string name="err_camera_perm">Camera permission required</string>
+    <string name="err_perm_missing">Permission missing</string>
+    <string name="err_preview">Preview failed</string>
+
+    <string name="register_night_torch">Night registration • Torch ON</string>
+    <string name="align_in_box">Align the tag in the box</string>
+    <string name="align_and_tap">Align your pattern in the box and tap Capture</string>
+    <string name="hold_steady">Hold steady…</string>
+    <string name="too_dark">Too dark</string>
+    <string name="too_bright">Too bright</string>
+    <string name="good_lighting">Good lighting</string>
+    <string name="registering_percent">Registering… %1$d%%</string>
+    <string name="registration_complete">Registration complete</string>
+    <string name="saved_frames_and_model">Saved %1$d frames • model saved (%2$d samples)</string>
+    <string name="saved_frames_no_model">Saved %1$d frames • model not saved</string>
+
+    <string name="err_enroll">Enroll error: %1$s</string>
+    <string name="err_no_captures">No captures yet</string>
+    <string name="packaging_session">Packaging session…</string>
+    <string name="session_packaged">Session packaged</string>
+    <string name="export_failed">Export failed</string>
+    <string name="export_failed_msg">Export failed: %1$s</string>
+    <string name="share_zip">Share session zip</string>
+
+    <string name="pattern_n">Pattern %1$d</string>
+
+
+    <string name="auth_hint_align">Align your pattern and tap Authenticate</string>
+    <string name="auth_preparing">Preparing…</string>
+    <string name="auth_authenticating_fmt">Authenticating… %1$d%%</string>
+    <string name="auth_model_present_fmt">Model for Pattern %1$d: present</string>
+    <string name="auth_model_missing_fmt">Model for Pattern %1$d: not found</string>
+    <string name="auth_similarity_fmt">Similarity: %1$d%% (n=%2$d, slot=%3$d)</string>
+    <string name="auth_verdict_match">Verdict: MATCH ✅</string>
+    <string name="auth_verdict_nomatch">Verdict: NO MATCH ❌</string>
+    <string name="auth_holdsteady">HOLD STEADY</string>
+    <string name="auth_too_dark">Too dark</string>
+    <string name="auth_too_bright">Too bright</string>
+    <string name="auth_hold_steady">Hold steady…</string>
+    <string name="auth_good_light">Good Lighting</string>
+    <string name="auth_unlocked">Unlocked</string>
+
+
+
+
+    <!-- Generic -->
+    <string name="done">Done</string>
+
+    <!-- Register -->
+    <string name="hold_steady_dots">Hold steady…</string>
+
+
+    <!-- Authenticate -->
+
+    <string name="auth_no_model">No model for selected pattern. Register first.</string>
+
+
+    <!-- Camera / Demo messages -->
+    <string name="cam_none">No cameras reported by system</string>
+    <string name="cam_choose_fail">Could not choose a camera</string>
+    <string name="cam_chars_fail">Could not get camera characteristics: %1$s</string>
+    <string name="cam_id_missing">Camera id missing</string>
+    <string name="cam_error">Camera error: %1$d</string>
+    <string name="cam_open_fail">Open camera failed: %1$s</string>
+    <string name="perm_denied">Permission denied</string>
+    <string name="preview_fail">Preview config failed</string>
+    <string name="training_model">Building your pattern model</string>
+    <string name="no_crops_to_export">no_crops_to_export</string>
+    <string name="export_session_title">export_session_title</string>
+    <string name="auth_no_frames">auth_no_frames</string>
+
 </resources>

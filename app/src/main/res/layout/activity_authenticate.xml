@@ -188,7 +188,7 @@
                 android:text="Verdict: —"
                 android:textStyle="bold"
                 android:textColor="@color/tw_bg"
-                android:textSize="18sp" />
+                android:textSize="22sp" />
 
             <TextView
                 android:id="@+id/confidenceText"
@@ -196,7 +196,7 @@
                 android:layout_height="wrap_content"
                 android:text="Confidence: —"
                 android:textColor="@color/tw_bg"
-                android:textSize="14sp" />
+                android:textSize="18sp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

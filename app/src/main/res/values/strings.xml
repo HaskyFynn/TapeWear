@@ -5,6 +5,7 @@
     <string name="simple_and_secure">Simple and secure</string>
     <string name="register">Register</string>
     <string name="authenticate">Authenticate</string>
+    <string name="authenticate_at_register">Authenticate</string>
     <string name="copyrighttapewear">© TapeWear</string>
     <string name="position_your_puf_to_fill_the_capture_box_then_tap_capture">Position your PUF to fill the capture box, then tap Capture</string>
     <string name="title_day_registration">Day registration</string>

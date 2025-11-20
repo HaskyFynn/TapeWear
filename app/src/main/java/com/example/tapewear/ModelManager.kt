@@ -293,7 +293,7 @@ object ModelManager {
     }
 
     // Used only by direct score(), not by scoreFromBitmaps
-    var COSINE_THRESHOLD = 0.90f
+    var COSINE_THRESHOLD = 0.85f
 
     private fun modelsDir(ctx: Context) =
         File(ctx.filesDir, MODELS_DIR).apply { mkdirs() }
@@ -495,9 +495,9 @@ object ModelManager {
         val spread = maxSim - minSim
         val mean = sims.sum() / n
 
-        val matchThreshold = 0.90f
-        val maxSpread = 0.10f
-        val minFrames = 3
+        val matchThreshold = 0.85f
+        val maxSpread = 0.25f
+        val minFrames = 1
 
         val isStable = spread <= maxSpread
         val strong = median >= matchThreshold
@@ -528,7 +528,7 @@ object ModelManager {
     /**
      * Hybrid patch + gradient + HSV color histogram:
      *
-     *  - Take YOLO ROI, shrink to 85% around its center (removes noisy borders).
+     *  - Take YOLO ROI, shrink to 90% around its center (removes noisy borders).
      *  - Crop and resize to 64×64.
      *  - Grayscale + mean/std normalization.
      *  - Block 1: 32×32 downsampled intensities (1024-D).
@@ -549,8 +549,8 @@ object ModelManager {
         private const val COLOR_DIM = COLOR_BINS * 3                  // 48
         private const val DIM = PIX_DIM + GRAD_DIM + COLOR_DIM        // 1200
 
-        // 0.85 center crop inside YOLO ROI
-        private const val CENTER_CROP_RATIO = 0.85f
+        // 0.90 center crop inside YOLO ROI
+        private const val CENTER_CROP_RATIO = 0.90f
 
         // Block weights before final L2 normalisation
         private const val PIX_WEIGHT = 0.7f
@@ -567,7 +567,7 @@ object ModelManager {
             val w0 = right0 - left0
             val h0 = bottom0 - top0
 
-            // Center crop: take 85% around ROI center
+            // Center crop: take 90% around ROI center
             val cx = left0 + w0 / 2f
             val cy = top0 + h0 / 2f
             val halfW = (w0 * CENTER_CROP_RATIO * 0.5f)

@@ -27,11 +27,11 @@ class AuthenticateActivity : AppCompatActivity() {
     // Demo video (used only when demoMode == true)
     private var videoSource: VideoFrameSource? = null
     private var lastDemoFrame: Bitmap? = null
-    private var videoFrameStepMs: Long = 150L   // ~9 fps
+    private var videoFrameStepMs: Long = 100L
     private var currentVideoTimeMs: Long = 0L
 
     // Manual demo flag (set true to force video-based demo)
-    private var demoMode = true
+    private var demoMode = false
     private var hasFlash = false
 
     // Views
@@ -64,16 +64,15 @@ class AuthenticateActivity : AppCompatActivity() {
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
 
-    // Burst metrics
-    private var authBurstStartMs: Long = 0L
-    private var authBurstFrameCount: Int = 0
-
     private val perms = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { res ->
         if (res.values.all { it }) startWhenReady()
         else Toast.makeText(this, getString(R.string.err_camera_perm), Toast.LENGTH_SHORT).show()
     }
+
+    // Timing for auth burst
+    private var authSessionStartMs: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,16 +104,14 @@ class AuthenticateActivity : AppCompatActivity() {
         val slots = (1..10).map { getString(R.string.pattern_n, it) }
         spinnerPattern.adapter =
             ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, slots)
-        spinnerPattern.onItemSelectedListener = object : AdapterView.
 
+        // Pre-select the active slot (last used in registration)
+        val initialSlot = (ModelManager.
+        getActiveSlot() - 1).coerceIn(0, 9)
+        spinnerPattern.setSelection(initialSlot)
 
-        OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
+        spinnerPattern.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val slot = position + 1
                 ModelManager.setActiveSlot(slot)
                 val present = ModelManager.hasModel(this@AuthenticateActivity, slot)
@@ -126,7 +123,6 @@ class AuthenticateActivity : AppCompatActivity() {
                     getString(R.string.auth_model_missing_fmt, slot)
                 confidenceText.text = ""
             }
-
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
@@ -141,11 +137,7 @@ class AuthenticateActivity : AppCompatActivity() {
 
         if (!demoMode) {
             // Normal camera path
-            val ids: Array<String> = try {
-                cameraManager.cameraIdList
-            } catch (_: Exception) {
-                emptyArray()
-            }
+            val ids: Array<String> = try { cameraManager.cameraIdList } catch (_: Exception) { emptyArray() }
             if (ids.isEmpty()) {
                 switchToDemo(getString(R.string.cam_none))
                 return
@@ -154,11 +146,8 @@ class AuthenticateActivity : AppCompatActivity() {
             val back = ids.firstOrNull {
                 try {
                     cameraManager.getCameraCharacteristics(it)
-                        .get(CameraCharacteristics.LENS_FACING) ==
-                            CameraCharacteristics.LENS_FACING_BACK
-                } catch (_: Exception) {
-                    false
-                }
+                        .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+                } catch (_: Exception) { false }
             }
             cameraId = back ?: ids.firstOrNull()
             if (cameraId == null) {
@@ -179,7 +168,6 @@ class AuthenticateActivity : AppCompatActivity() {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
                     if (!demoMode) startWhenReady()
                 }
-
                 override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
                 override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
@@ -205,7 +193,6 @@ class AuthenticateActivity : AppCompatActivity() {
         backgroundThread = HandlerThread("ImageProcessorAuth").apply { start() }
         backgroundHandler = Handler(backgroundThread!!.looper)
 
-        // Camera will only start when ready (non-demo)
         if (!demoMode && textureView.isAvailable) {
             startWhenReady()
         }
@@ -214,28 +201,20 @@ class AuthenticateActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
 
-
-// Release demo frames / video if used
+        // Release demo frames / video if used
         lastDemoFrame?.recycle()
         lastDemoFrame = null
 
         try {
             videoSource?.close()
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
         videoSource = null
 
         if (!demoMode) {
             setTorch(false)
-            try {
-                session?.close()
-            } catch (_: Exception) {
-            }
+            try { session?.close() } catch (_: Exception) {}
             session = null
-            try {
-                cameraDevice?.close()
-            } catch (_: Exception) {
-            }
+            try { cameraDevice?.close() } catch (_: Exception) {}
             cameraDevice = null
         }
 
@@ -265,10 +244,7 @@ class AuthenticateActivity : AppCompatActivity() {
     }
 
     private fun hasCamPerm() =
-        ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     private fun openCamera() {
         val id = cameraId ?: run {
@@ -276,33 +252,16 @@ class AuthenticateActivity : AppCompatActivity() {
             return
         }
         try {
-            cameraManager.openCamera(
-                id,
-                object : CameraDevice.StateCallback() {
-                    override fun onOpened(device: CameraDevice) {
-                        cameraDevice = device
-                        startPreview()
-                    }
-
-                    override fun onDisconnected(device: CameraDevice) {
-                        device.close()
-                        cameraDevice = null
-                    }
-
-                    override fun onError(device: CameraDevice, error: Int) {
-                        device.close()
-                        cameraDevice = null
-                        switchToDemo(getString(R.string.cam_error, error))
-                    }
-                },
-                backgroundHandler
-            )
+            cameraManager.openCamera(id, object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) { cameraDevice = device; startPreview() }
+                override fun onDisconnected(device: CameraDevice) { device.close(); cameraDevice = null }
+                override fun onError(device: CameraDevice, error: Int) {
+                    device.close(); cameraDevice = null
+                    switchToDemo(getString(R.string.cam_error, error))
+                }
+            }, backgroundHandler)
         } catch (_: SecurityException) {
-            Toast.makeText(
-                this,
-                getString(R.string.err_perm_missing),
-                Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(this, getString(R.string.err_perm_missing), Toast.LENGTH_SHORT).show()
             switchToDemo(getString(R.string.perm_denied))
         } catch (e: Exception) {
             switchToDemo(getString(R.string.cam_open_fail, e.message ?: ""))
@@ -317,17 +276,12 @@ class AuthenticateActivity : AppCompatActivity() {
 
         reqBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
             addTarget(previewSurface)
-            set(
-                CaptureRequest.CONTROL_AF_MODE,
-                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
-            )
+            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
         }
 
         fpsRanges?.let { ranges ->
             val best = ranges.firstOrNull { it.contains(30) } ?: ranges.firstOrNull()
-            best?.let {
-                reqBuilder?.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
-            }
+            best?.let { reqBuilder?.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it) }
         }
 
         @Suppress("DEPRECATION")
@@ -339,14 +293,8 @@ class AuthenticateActivity : AppCompatActivity() {
                     s.setRepeatingRequest(reqBuilder!!.build(), null, backgroundHandler)
                     overlayView.statusText = getString(R.string.auth_hint_align)
                 }
-
-
                 override fun onConfigureFailed(s: CameraCaptureSession) {
-                    Toast.makeText(
-                        this@AuthenticateActivity,
-                        getString(R.string.err_preview),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(this@AuthenticateActivity, getString(R.string.err_preview), Toast.LENGTH_SHORT).show()
                     switchToDemo(getString(R.string.preview_fail))
                 }
             },
@@ -365,45 +313,39 @@ class AuthenticateActivity : AppCompatActivity() {
         progressBar.progress = 0
         progressBar.visibility = View.VISIBLE
 
-        authBurstStartMs = 0L
-        authBurstFrameCount = 0
-
         val night = flashCheck.isChecked
         if (!demoMode && night && hasFlash) setTorch(true)
 
+        authSessionStartMs = SystemClock.elapsedRealtime()
+        val slot = ModelManager.getActiveSlot()
+        MetricsLogger.logSystemSnapshot(this, "auth_start_slot_$slot")
+
+        Log.d("TapeWear_Auth", "Starting auth burst (night=$night, demo=$demoMode)")
+
         mainHandler.postDelayed({
             lockAeAwb(true)
-            authBurstStartMs = SystemClock.elapsedRealtime()
             runAuthBurst(night)
         }, 600)
     }
 
     private fun runAuthBurst(night: Boolean) {
-        val totalMs = 4_000L
-        val stepMs = 220L
+        val totalMs = 17L
+        val stepMs  = 220L
         val started = SystemClock.elapsedRealtime()
-        val frames = ArrayList<Bitmap>()
+        val frames  = ArrayList<Bitmap>()
         var prevSmall: Bitmap? = null
-
-        Log.d("TapeWear_Auth", "Starting auth burst (night=$night, demo=$demoMode)")
 
         val run = object : Runnable {
             override fun run() {
-                val loopStart = SystemClock.elapsedRealtime()
-                val elapsed = loopStart - started
+                val elapsed = SystemClock.elapsedRealtime() - started
 
                 val sample = snapshotCurrent()
                 if (sample != null) {
-                    authBurstFrameCount++
-
                     val luma = meanLuma(sample)
                     val blur = blurMetric(sample)
                     val motion = prevSmall?.let { meanAbsDiff(it, sample) } ?: 0.0
                     prevSmall?.recycle()
-                    prevSmall = sample.copy(
-                        sample.config ?: Bitmap.Config.ARGB_8888,
-                        false
-                    )
+                    prevSmall = sample.copy(sample.config ?: Bitmap.Config.ARGB_8888, false)
 
                     val assessment = Quality.assess(luma, blur, motion, night)
                     Log.d(
@@ -424,29 +366,17 @@ class AuthenticateActivity : AppCompatActivity() {
                     }
                 }
 
-                val loopEnd = SystemClock.elapsedRealtime()
-                val loopMs = loopEnd - loopStart
-                Log.d(
-                    "TapeWear_Auth",
-                    "Auth burst loop latency=${loopMs} ms, keptFrames=${frames.size}"
-                )
-
                 mainHandler.post {
-                    val pct =
-                        (elapsed.toFloat() / totalMs * 100).coerceIn(0f, 100f).toInt()
+                    val pct = (elapsed.toFloat() / totalMs * 100).coerceIn(0f, 100f).toInt()
                     progressBar.progress = pct
-                    progressLine.text =
-                        getString(R.string.auth_authenticating_fmt, pct)
+                    progressLine.text = getString(R.string.auth_authenticating_fmt, pct)
                 }
 
                 if (elapsed < totalMs) {
                     backgroundHandler?.postDelayed(this, stepMs)
                 } else {
                     prevSmall?.recycle()
-                    Log.d(
-                        "TapeWear_Auth",
-                        "Auth burst finished, collected ${frames.size} frames."
-                    )
+                    Log.d("TapeWear_Auth", "Auth burst finished, collected ${frames.size} frames.")
                     mainHandler.post { finishAuth(frames, night) }
                 }
             }
@@ -454,29 +384,11 @@ class AuthenticateActivity : AppCompatActivity() {
         backgroundHandler?.post(run)
     }
 
-
     private fun finishAuth(frames: MutableList<Bitmap>, night: Boolean) {
         Log.d("TapeWear_Auth", "finishAuth: processing ${frames.size} frames")
         lockAeAwb(false)
         if (!demoMode && night) setTorch(false)
 
-        if (frames.isEmpty()) {
-            hideProgress()
-            verdictText.text = getString(R.string.auth_verdict_nomatch)
-            confidenceText.text = getString(R.string.auth_no_frames)
-            resultCard.visibility = View.VISIBLE
-            btnCapture.isEnabled =
-                ModelManager.hasModel(this, ModelManager.getActiveSlot())
-            return
-        }
-
-        // Basic burst stats
-        val burstEnd = SystemClock.elapsedRealtime()
-        val burstMs = if (authBurstStartMs > 0L) burstEnd - authBurstStartMs else 0L
-        val fps =
-            if (burstMs > 0L) authBurstFrameCount * 1000f / burstMs.toFloat() else 0f
-
-        // Choose best frames by blur metric (sharper first)
         val top = frames
             .map { it to blurMetric(it) }
             .sortedByDescending { it.second }
@@ -486,15 +398,8 @@ class AuthenticateActivity : AppCompatActivity() {
         val framesToScore = top.ifEmpty { frames }
         Log.d(
             "TapeWear_Auth",
-            "Filtered to ${framesToScore.size} frames for scoring (fps=%.1f, burstMs=%d)"
-                .format(fps, burstMs)
+            "Filtered to ${framesToScore.size} frames for scoring (totalFrames=${frames.size})"
         )
-
-        // Scoring metrics
-        val scoreWallStart = SystemClock.elapsedRealtime()
-        val cpuStartNs = Debug.threadCpuTimeNanos()
-        val rt = Runtime.getRuntime()
-        val usedBefore = rt.totalMemory() - rt.freeMemory()
 
         val verdict = try {
             ModelManager.scoreFromBitmaps(
@@ -508,41 +413,42 @@ class AuthenticateActivity : AppCompatActivity() {
             ModelManager.Verdict(-1f, false)
         }
 
-        val cpuEndNs = Debug.threadCpuTimeNanos()
-        val usedAfter = rt.totalMemory() - rt.freeMemory()
-        val scoreWallEnd = SystemClock.elapsedRealtime()
-
-        val scoreWallMs = scoreWallEnd - scoreWallStart
-        val cpuMs = (cpuEndNs - cpuStartNs) / 1_000_000.0
-        val memDeltaMb = (usedAfter - usedBefore) / (1024.0 * 1024.0)
-
         val finalSim: Float
+        val usedN: Int
         val isMatch: Boolean
-        val usedN = framesToScore.size
 
-        if (verdict.similarity >= 0f && verdict.similarity.isFinite()) {
+        if (verdict.similarity >= 0f) {
             finalSim = verdict.similarity.coerceIn(0f, 1f)
             isMatch = verdict.isMatch
+            usedN = framesToScore.size.coerceAtMost(5)
+
         } else {
-            // If the model reports invalid similarity, treat as failure
-            finalSim = 0f
+            // Fallback – should not normally happen now
+            finalSim = 0.5f
             isMatch = false
-            Log.w("TapeWear_Auth", "Invalid similarity from ModelManager, forcing no-match")
+            usedN = 0
+            Log.w("TapeWear_Auth", "Using fallback similarity")
         }
+
+        // Compute burstMs and fps for logging
+        val totalFrames = frames.size
+        val now = SystemClock.elapsedRealtime()
+        val burstMs = if (authSessionStartMs > 0L) now - authSessionStartMs else 0L
+        val fps = if (burstMs > 0L && totalFrames > 0)
+            totalFrames.toFloat() / (burstMs / 1000f)
+        else
+            0f
 
         Log.d(
             "TapeWear_Auth",
-            "Auth verdict: match=$isMatch, similarity=%.3f, usedN=$usedN, " +
-                    "burstMs=$burstMs, fps=%.1f, scoreWallMs=$scoreWallMs, " +
-                    "threadCpuMs=%.2f, heapDeltaMb=%.2f"
-                        .format(finalSim, fps, cpuMs, memDeltaMb)
+            "Auth verdict: match=$isMatch, similarity=%.3f, usedN=$usedN, burstMs=$burstMs, fps=%.1f"
+                .format(finalSim, fps)
         )
 
         frames.forEach { it.recycle() }
 
         hideProgress()
 
-        // UI summary (keep existing string for similarity)
         confidenceText.text = getString(
             R.string.auth_similarity_fmt,
             (finalSim * 100).toInt(),
@@ -555,8 +461,8 @@ class AuthenticateActivity : AppCompatActivity() {
             overlayView.statusText = getString(R.string.auth_unlocked)
 
             resultCard.visibility = View.VISIBLE
-            resultCard.scaleX = 0.85f
-            resultCard.scaleY = 0.85f
+            resultCard.scaleX = 0.90f
+            resultCard.scaleY = 0.90f
             resultCard.alpha = 0f
             resultCard.animate()
                 .alpha(1f)
@@ -576,17 +482,36 @@ class AuthenticateActivity : AppCompatActivity() {
                 .start()
         }
 
-        btnCapture.isEnabled =
-            ModelManager.hasModel(this, ModelManager.getActiveSlot())
+        val slot = ModelManager.getActiveSlot()
+
+        // Metrics logging
+        MetricsLogger.logAuthAttempt(
+            ctx = this,
+            slot = slot,
+            similarity = finalSim,
+            isMatch = isMatch,
+            burstMs = burstMs,
+            fps = fps
+        )
+        if (slot == 1) {
+            MetricsLogger.logAuthSlot1Repeat(
+                ctx = this,
+                similarity = finalSim,
+                isMatch = isMatch,
+                burstMs = burstMs,
+                fps = fps
+            )
+        }
+        MetricsLogger.updateBestAuth(this, slot, finalSim)
+        MetricsLogger.logSystemSnapshot(this, "auth_end_slot_$slot")
+
+        btnCapture.isEnabled = ModelManager.hasModel(this, slot)
     }
 
     // --- Locks / Torch / Snapshot / Metrics ---
     private fun setTorch(on: Boolean) {
         if (!hasFlash) return
-        try {
-            cameraManager.setTorchMode(cameraId ?: return, on)
-        } catch (_: Exception) {
-        }
+        try { cameraManager.setTorchMode(cameraId ?: return, on) } catch (_: Exception) {}
     }
 
     private fun lockAeAwb(lock: Boolean) {
@@ -596,8 +521,7 @@ class AuthenticateActivity : AppCompatActivity() {
             b.set(CaptureRequest.CONTROL_AE_LOCK, lock)
             b.set(CaptureRequest.CONTROL_AWB_LOCK, lock)
             s.setRepeatingRequest(b.build(), null, mainHandler)
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     private fun snapshotCurrent(): Bitmap? = try {
@@ -605,7 +529,7 @@ class AuthenticateActivity : AppCompatActivity() {
             // Lazy-open demo video the first time we need a frame
             val vs = videoSource ?: run {
                 try {
-                    val src = VideoFrameSource(this, "1.mp4")
+                    val src = VideoFrameSource(this, "demo_ring.mp4")
                     videoSource = src
                     currentVideoTimeMs = 0L
                     src
@@ -625,10 +549,8 @@ class AuthenticateActivity : AppCompatActivity() {
                 demoImage.setImageBitmap(raw)
             }
 
-            // Use a 640 × 640 copy for processing (YOLO + embedder expects this)
             raw.scale(640, 640, filter = true)
         } else {
-            // Normal camera path
             textureView.getBitmap(640, 640)
         }
     } catch (e: Exception) {
@@ -637,11 +559,9 @@ class AuthenticateActivity : AppCompatActivity() {
     }
 
     private fun meanLuma(bmp: Bitmap): Double {
-        val w = bmp.width
-        val h = bmp.height
+        val w = bmp.width; val h = bmp.height
         val row = IntArray(w)
-        var sum = 0L
-        var cnt = 0
+        var sum = 0L; var cnt = 0
         var y = 0
         while (y < h) {
             bmp.getPixels(row, 0, w, 0, y, w, 1)
@@ -661,11 +581,9 @@ class AuthenticateActivity : AppCompatActivity() {
     }
 
     private fun blurMetric(bmp: Bitmap): Double {
-        val w = bmp.width
-        val h = bmp.height
+        val w = bmp.width; val h = bmp.height
         val row = IntArray(w)
-        var acc = 0.0
-        var cnt = 0
+        var acc = 0.0; var cnt = 0
         var y = 1
         while (y < h - 1) {
             bmp.getPixels(row, 0, w, 0, y, w, 1)
@@ -688,8 +606,7 @@ class AuthenticateActivity : AppCompatActivity() {
         val h = min(a.height, b.height)
         val rowA = IntArray(w)
         val rowB = IntArray(w)
-        var sum = 0L
-        var cnt = 0
+        var sum = 0L; var cnt = 0
         var y = 0
         while (y < h) {
             a.getPixels(rowA, 0, w, 0, y, w, 1)
@@ -698,8 +615,6 @@ class AuthenticateActivity : AppCompatActivity() {
             while (x < w) {
                 val pa = rowA[x] and 0xFF
                 val pb = rowB[x] and 0xFF
-
-
                 sum += abs(pa - pb)
                 cnt++
                 x += 3
@@ -723,27 +638,15 @@ class AuthenticateActivity : AppCompatActivity() {
         textureView.visibility = View.GONE
         overlayView.statusText = getString(R.string.auth_hint_align)
 
-        try {
-            setTorch(false)
-        } catch (_: Exception) {
-        }
-        try {
-            session?.close()
-        } catch (_: Exception) {
-        }
+        try { setTorch(false) } catch (_: Exception) {}
+        try { session?.close() } catch (_: Exception) {}
         session = null
-        try {
-            cameraDevice?.close()
-        } catch (_: Exception) {
-        }
+        try { cameraDevice?.close() } catch (_: Exception) {}
         cameraDevice = null
 
         // Keep YOLO if it exists; only fall back if there's no detector
         if (ModelManager.detector == null) {
             ModelManager.detector = ModelManager.OverlayDetector(overlayView, null)
         }
-
-        // We do NOT start the video here; it will be lazily opened
-        // the first time snapshotCurrent() is called in an auth burst.
     }
 }

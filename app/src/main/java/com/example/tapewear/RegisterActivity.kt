@@ -15,39 +15,38 @@ import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import androidx.core.graphics.scale
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 class RegisterActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_NIGHT_MODE = "extra_night_mode"
-        private const val TAG = "TapeWear_Reg"
+        private const val GOOD_FRAME_LIMIT = 30
     }
 
     private var nightMode = false
 
-    // Toggle this when you move from emulator demo to real device
-    private val demoMode = true
+    // Set this to true to run with asset video instead of camera
+    private val demoMode = false
 
-    // Demo video source
+    // Video demo source
     private var videoSource: VideoFrameSource? = null
     private var currentVideoTimeMs: Long = 0L
-    private var lastDemoFrame: Bitmap? = null
-    private var videoFrameStepMs: Long = 150L   // about 9 fps
+    private var videoFrameStepMs: Long = 100L
 
     // Views
     private lateinit var textureView: TextureView
     private lateinit var overlayView: OverlayView
     private lateinit var demoImage: ImageView
     private lateinit var btnCapture: Button
-    private lateinit var btnExport: Button
+    private lateinit var btnAuth: Button
     private lateinit var previewThumb: ImageView
     private lateinit var previewLabel: TextView
     private lateinit var flashHint: TextView
@@ -72,7 +71,7 @@ class RegisterActivity : AppCompatActivity() {
     private var hasFlash = false
     private var reqBuilder: CaptureRequest.Builder? = null
 
-    // Background thread for capture and registration processing
+    // Background thread for processing
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
 
@@ -91,62 +90,57 @@ class RegisterActivity : AppCompatActivity() {
 
     private val regRunning = AtomicBoolean(false)
 
+    // Registration timing
+    private var regSessionStartMs: Long = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_register)
 
-        // Bind views
-        textureView         = findViewById(R.id.textureView)
-        overlayView         = findViewById(R.id.overlayView)
-        demoImage           = findViewById(R.id.demoImage)
-        btnCapture          = findViewById(R.id.btnCapture)
-        btnExport           = findViewById(R.id.btnExport)
-        previewThumb        = findViewById(R.id.previewThumb)
-        previewLabel        = findViewById(R.id.previewLabel)
-        flashHint           = findViewById(R.id.flashHint)
-        progressBar         = findViewById(R.id.progressBar)
-        progressLine        = findViewById(R.id.
+        // Bind
+        textureView   = findViewById(R.id.textureView)
+        overlayView   = findViewById(R.id.overlayView)
+        demoImage     = findViewById(R.id.demoImage)
+        btnCapture    = findViewById(R.id.btnCapture)
+        btnAuth       = findViewById(R.id.btnExport)   // reuse old Export button as "Authenticate"
+        previewThumb  = findViewById(R.id.previewThumb)
+        previewLabel  = findViewById(R.id.previewLabel)
+        flashHint     = findViewById(R.id.flashHint)
+        progressBar   = findViewById(R.id.progressBar)
+        progressLine  = findViewById(R.id.progressLine)
+        topMessage    = findViewById(R.id.topMessage)
 
 
-        progressLine)
-        topMessage          = findViewById(R.id.topMessage)
-        progressSlot        = findViewById(R.id.progressSlot)
-        flashCheckRegister  = findViewById(R.id.flashCheckRegister)
-        spnSlot             = findViewById(R.id.spnSlot)
+        progressSlot  = findViewById(R.id.progressSlot)
+        flashCheckRegister = findViewById(R.id.flashCheckRegister)
+        spnSlot       = findViewById(R.id.spnSlot)
 
         nightMode = intent?.getBooleanExtra(EXTRA_NIGHT_MODE, false) == true
         flashCheckRegister.isChecked = nightMode
 
-        // Slot spinner 1 to 10
+        // Slot spinner (1..10) + remember selection
         val slotLabels = (1..10).map { getString(R.string.pattern_n, it) }
-        spnSlot.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            slotLabels
-        )
+        spnSlot.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, slotLabels)
         spnSlot.setSelection((currentSlot - 1).coerceIn(0, 9))
         spnSlot.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?, view: View?, position: Int, id: Long
-            ) {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 currentSlot = position + 1
                 ModelManager.setActiveSlot(currentSlot)
-                Log.d(TAG, "Active registration slot set to $currentSlot")
+                Log.d("TapeWear_Reg", "Active registration slot set to $currentSlot")
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
         progressSlot.visibility = View.GONE
-        btnExport.visibility    = View.GONE
+        btnAuth.visibility      = View.GONE
         overlayView.statusText  = getString(R.string.align_in_box)
         refreshHeader()
-
-        flashCheckRegister.setOnCheckedChangeListener { _, checked ->
-            nightMode = checked
+        flashCheckRegister.setOnCheckedChangeListener { _, b ->
+            nightMode = b
             refreshHeader()
         }
 
-        // Session dirs
+        // Dirs
         sessionDir = File(cacheDir, "session_${System.currentTimeMillis()}").apply { mkdirs() }
         cropsDir   = File(sessionDir, "crops").apply { mkdirs() }
 
@@ -155,57 +149,43 @@ class RegisterActivity : AppCompatActivity() {
             startRegistrationCapture()
         }
 
-        btnExport.setOnClickListener {
-            exportSession()
+        // Authenticate button: jump straight to AuthenticateActivity, using current slot
+        btnAuth.text = getString(R.string.authenticate_at_register)
+        btnAuth.setOnClickListener {
+            // Make sure active slot is consistent
+            ModelManager.setActiveSlot(currentSlot)
+            startActivity(Intent(this, AuthenticateActivity::class.java))
         }
 
         if (demoMode) {
-            Log.d(TAG, "RegisterActivity in DEMO mode using asset video")
+            Log.d("TapeWear_Reg", "RegisterActivity in DEMO mode using asset video")
             textureView.visibility = View.GONE
-            demoImage.visibility   = View.VISIBLE
-            flashHint.visibility   = View.GONE
-
-            // If YOLO detector is not ready, fall back to overlay based detector
-            if (ModelManager.detector == null) {
-                Log.w(TAG, "ModelManager.detector was null, using OverlayDetector fallback (demo)")
-                ModelManager.detector = ModelManager.OverlayDetector(overlayView, null)
-            }
+            demoImage.visibility = View.VISIBLE
+            flashHint.visibility = View.GONE
         } else {
             demoImage.visibility = View.GONE
         }
 
-        // Camera choice only if not in demo
+        if (demoMode && ModelManager.detector == null) {
+            // YOLO wasn’t ready, use simple overlay-based ROI
+            ModelManager.detector = ModelManager.OverlayDetector(overlayView, null)
+        }
+
+        // Camera choice (only if not in demo)
         if (!demoMode) {
-            try {
-                cameraId = cameraManager.cameraIdList.firstOrNull { id ->
-                    cameraManager.getCameraCharacteristics(id)
-                        .get(CameraCharacteristics.LENS_FACING) ==
-                            CameraCharacteristics.LENS_FACING_BACK
-                } ?: cameraManager.cameraIdList.first()
+            cameraId = cameraManager.cameraIdList.firstOrNull { id ->
+                cameraManager.getCameraCharacteristics(id)
+                    .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+            } ?: cameraManager.cameraIdList.first()
 
-                val chars = cameraManager.getCameraCharacteristics(cameraId)
-                hasFlash  = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-                Log.d(TAG, "Using cameraId=$cameraId, hasFlash=$hasFlash")
+            val chars = cameraManager.getCameraCharacteristics(cameraId)
+            hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
 
-                textureView.surfaceTextureListener =
-                    object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(
-                            st: SurfaceTexture, w: Int, h: Int
-                        ) {
-                            startWhenReady()
-                        }
-                        override fun onSurfaceTextureSizeChanged(
-                            st: SurfaceTexture, w: Int, h: Int
-                        ) {}
-                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
-                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
-                    }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to configure camera: ${e.message}", e)
-                toast(getString(R.
-
-
-                string.err_preview))
+            textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) = startWhenReady()
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
             }
         }
     }
@@ -214,21 +194,16 @@ class RegisterActivity : AppCompatActivity() {
         super.onResume()
 
         if (demoMode) {
-            try {
-                videoSource = VideoFrameSource(this, "7.mp4")
-                currentVideoTimeMs = 0L
-                Log.d(TAG, "DEMO: video source created")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to open demo video: ${e.message}", e)
-            }
+            videoSource = VideoFrameSource(this, "demo_ring.mp4")
+            currentVideoTimeMs = 0L
+            Log.d("TapeWear_Reg", "DEMO: video source created")
         }
 
         backgroundThread = HandlerThread("ImageProcessor").apply { start() }
         backgroundHandler = Handler(backgroundThread!!.looper)
 
-        if (!demoMode && textureView.isAvailable) {
-            startWhenReady()
-        }
+        if (!demoMode && textureView.
+        isAvailable) startWhenReady()
     }
 
     override fun onPause() {
@@ -237,31 +212,25 @@ class RegisterActivity : AppCompatActivity() {
         if (demoMode) {
             videoSource?.close()
             videoSource = null
-            lastDemoFrame?.recycle()
-            lastDemoFrame = null
         }
 
         if (!demoMode) {
             setTorch(false)
-            try { session?.close() } catch (_: Exception) {}
-            session = null
-            try { cameraDevice?.close() } catch (_: Exception) {}
-            cameraDevice = null
+            session?.close(); session = null
+            cameraDevice?.close(); cameraDevice = null
         }
 
         backgroundThread?.quitSafely()
         try {
             backgroundThread?.join()
-        } catch (e: InterruptedException) {
-            Log.e(TAG, "Failed to stop background thread", e)
-        } finally {
             backgroundThread = null
             backgroundHandler = null
+        } catch (e: InterruptedException) {
+            Log.e("TapeWear", "Failed to stop background thread", e)
         }
     }
 
-    // Camera bring up
-
+    // --- Camera bring-up ---
     private fun startWhenReady() {
         if (demoMode) return
         if (!hasCamPerm()) {
@@ -273,39 +242,17 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun hasCamPerm() =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     private fun openCamera() {
         try {
-            Log.d(TAG, "Opening camera: $cameraId")
-            cameraManager.openCamera(
-                cameraId,
-                object : CameraDevice.StateCallback() {
-                    override fun onOpened(device: CameraDevice) {
-                        Log.d(TAG, "Camera opened")
-                        cameraDevice = device
-                        startPreview()
-                    }
-                    override fun onDisconnected(device: CameraDevice) {
-                        Log.w(TAG, "Camera disconnected")
-                        device.close()
-                        cameraDevice = null
-                    }
-                    override fun onError(device: CameraDevice, error: Int) {
-                        Log.e(TAG, "Camera error: $error")
-                        device.close()
-                        cameraDevice = null
-                        toast(getString(R.string.err_preview))
-                    }
-                },
-                backgroundHandler
-            )
-        } catch (e: SecurityException) {
+            cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) { cameraDevice = device; startPreview() }
+                override fun onDisconnected(device: CameraDevice) { device.close(); cameraDevice = null }
+                override fun onError(device: CameraDevice, error: Int) { device.close(); cameraDevice = null }
+            }, backgroundHandler)
+        } catch (_: SecurityException) {
             toast(getString(R.string.err_perm_missing))
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to open camera: ${e.message}", e)
-            toast(getString(R.string.err_preview))
         }
     }
 
@@ -317,10 +264,7 @@ class RegisterActivity : AppCompatActivity() {
 
         reqBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
             addTarget(previewSurface)
-            set(
-                CaptureRequest.CONTROL_AF_MODE,
-                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
-            )
+            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
         }
 
         @Suppress("DEPRECATION")
@@ -329,23 +273,12 @@ class RegisterActivity : AppCompatActivity() {
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(s: CameraCaptureSession) {
                     session = s
-                    try {
-                        val req = reqBuilder?.build()
-
-
-                        if (req != null) {
-                            s.setRepeatingRequest(req, null, backgroundHandler)
-                        }
-                        overlayView.statusText = getString(R.string.align_and_tap)
-                        Log.d(TAG, "Preview configured")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to start preview: ${e.message}", e)
-                        toast(getString(R.string.err_preview))
+                    reqBuilder?.build()?.let { built ->
+                        s.setRepeatingRequest(built, null, mainHandler)
                     }
+                    overlayView.statusText = getString(R.string.align_and_tap)
                 }
-
                 override fun onConfigureFailed(s: CameraCaptureSession) {
-                    Log.e(TAG, "Preview configuration failed")
                     toast(getString(R.string.err_preview))
                 }
             },
@@ -353,48 +286,38 @@ class RegisterActivity : AppCompatActivity() {
         )
     }
 
-    // Header
-
+    // --- Header ---
     private fun refreshHeader() {
         topMessage.text = if (nightMode) {
             getString(R.string.register_night_torch)
         } else {
             getString(R.string.register_day)
         }
-
-        flashHint.visibility =
-            if (!demoMode && nightMode) View.VISIBLE else View.GONE
-        flashHint.text =
-            if (nightMode && !demoMode) getString(R.string.torch_on) else ""
-
-        Log.d(TAG, "Header refreshed: nightMode=$nightMode, demoMode=$demoMode")
+        flashHint.visibility = if (!demoMode && nightMode) View.VISIBLE else View.GONE
+        flashHint.text = if (nightMode && !demoMode) getString(R.string.torch_on) else ""
+        Log.d("TapeWear_Reg", "Header refreshed: nightMode=$nightMode, demoMode=$demoMode")
     }
 
-    // Registration flow
-
+    // --- Registration flow ---
     private fun startRegistrationCapture() {
-        if (regRunning.getAndSet(true)) {
-            Log.w(TAG, "Registration already running, ignoring tap")
-            return
-        }
+        if (regRunning.getAndSet(true)) return
 
-        Log.d(TAG, "Starting registration capture (slot=$currentSlot, night=$nightMode)")
+        regSessionStartMs = SystemClock.elapsedRealtime()
+        MetricsLogger.logSystemSnapshot(this, "reg_start_slot_${currentSlot}")
 
         btnCapture.isEnabled = false
         btnCapture.visibility = View.GONE
         progressSlot.visibility = View.VISIBLE
-        btnExport.visibility = View.GONE
+        btnAuth.visibility = View.GONE
         progressBar.progress = 0
-        progressBar.visibility = View.VISIBLE
-        progressLine.visibility = View.VISIBLE
         progressLine.text = getString(R.string.preparing)
         overlayView.statusText = getString(R.string.hold_steady)
         flashCheckRegister.visibility = View.GONE
 
-        if (!demoMode && nightMode && hasFlash) {
-            setTorch(true)
-        }
+        if (!demoMode && nightMode && hasFlash) setTorch(true)
 
+
+        Log.d("TapeWear_Reg", "Starting registration capture (slot=$currentSlot, night=$nightMode)")
         mainHandler.postDelayed({
             lockAeAwb(true)
             runRegistrationBurst()
@@ -402,14 +325,14 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun runRegistrationBurst() {
-        val totalMs = 11_000L
+        val totalMs = 1_000L
         val stepMs  = 170L
         val started = SystemClock.elapsedRealtime()
         val kept = ArrayList<Sample>()
         var prevFrame: Bitmap? = null
         currentVideoTimeMs = 0L
 
-        Log.d(TAG, "Starting registration burst (night=$nightMode, demo=$demoMode)")
+        Log.d("TapeWear_Reg", "Starting registration burst (night=$nightMode, demo=$demoMode)")
 
         val run = object : Runnable {
             override fun run() {
@@ -422,71 +345,57 @@ class RegisterActivity : AppCompatActivity() {
                     val motion = prevFrame?.let { meanAbsDiff(it, frame) } ?: 0.0
 
                     prevFrame?.recycle()
-                    prevFrame = frame.copy(
-                        frame.config ?: Bitmap.Config.ARGB_8888,
-                        false
-                    )
+                    prevFrame = frame.copy(frame.config ?: Bitmap.Config.ARGB_8888, false)
 
                     val assessment = Quality.assess(luma, blur, motion, nightMode)
                     Log.d(
-                        TAG,
-                        "Frame sample: luma=%.1f, blur=%.1f, motion=%.1f -> pass=%s"
-                            .format(luma, blur, motion, assessment.pass)
+                        "TapeWear_Reg",
+                        "Frame sample: luma=%.1f, blur=%.1f, motion=%.1f -> pass=${assessment.pass}"
+                            .format(luma, blur, motion)
                     )
 
-                    mainHandler.post {
-                        topMessage.text = assessment.hint
-                    }
+                    mainHandler.post { topMessage.text = assessment.hint }
 
                     if (assessment.pass) {
-                        kept.add(
-                            Sample(
-                                bmp = frame,
-                                blur = blur,
-                                luma = luma,
-                                ts = SystemClock.elapsedRealtime()
-                            )
-                        )
+                        kept.add(Sample(frame, blur, luma, SystemClock.elapsedRealtime()))
                     } else {
-
-
                         frame.recycle()
                     }
                 }
 
                 mainHandler.post {
-                    val pct =
-                        (elapsed.toFloat() / totalMs * 100)
-                            .coerceIn(0f, 100f)
-                            .toInt()
+                    val pct = (elapsed.toFloat() / totalMs * 100).coerceIn(0f, 100f).toInt()
                     progressBar.progress = pct
-                    progressLine.text =
-                        getString(R.string.registering_percent, pct)
+                    progressLine.text = getString(R.string.registering_percent, pct)
+                }
+
+                // Early stop once we have 30 good frames
+                if (kept.size >= GOOD_FRAME_LIMIT) {
+                    Log.d(
+                        "TapeWear_Reg",
+                        "Reached GOOD_FRAME_LIMIT=$GOOD_FRAME_LIMIT, stopping burst early (kept=${kept.size})"
+                    )
+                    prevFrame?.recycle()
+                    mainHandler.post { finishRegistration(kept) }
+                    return
                 }
 
                 if (elapsed < totalMs) {
                     backgroundHandler?.postDelayed(this, stepMs)
                 } else {
                     prevFrame?.recycle()
-                    Log.d(TAG, "Registration burst finished, collected ${kept.size} samples.")
+                    Log.d("TapeWear_Reg", "Registration burst finished, collected ${kept.size} samples.")
                     mainHandler.post { finishRegistration(kept) }
                 }
             }
         }
-
         backgroundHandler?.post(run)
     }
 
     private fun saveDetectionsDebug(frames: List<Bitmap>) {
-        val det = ModelManager.detector ?: run {
-            Log.w(TAG, "saveDetectionsDebug: detector is null, skipping")
-            return
-        }
+        val det = ModelManager.detector ?: return
 
-        val outDir = File(
-            sessionDir,
-            "slot_${"%02d".format(currentSlot)}_bboxes"
-        ).apply { mkdirs() }
+        val outDir = File(sessionDir, "slot_${"%02d".format(currentSlot)}_bboxes").apply { mkdirs() }
 
         val boxPaint = Paint().apply {
             color = Color.RED
@@ -506,105 +415,110 @@ class RegisterActivity : AppCompatActivity() {
                     canvas.drawRect(d.box, boxPaint)
                 }
 
-                val f = File(
-                    outDir,
-                    "slot${"%02d".format(currentSlot)}_frame${"%03d".format(idx)}.jpg"
-                )
+                val f = File(outDir, "slot${"%02d".format(currentSlot)}_frame${"%03d".format(idx)}.jpg")
                 FileOutputStream(f).use { out ->
                     boxed.compress(Bitmap.CompressFormat.JPEG, 92, out)
                 }
                 boxed.recycle()
             } catch (e: Exception) {
-                Log.w(TAG, "saveDetectionsDebug failed for frame $idx: ${e.message}")
+                Log.w("TapeWear_Reg", "saveDetectionsDebug failed for one frame: ${e.message}")
+
+
             }
         }
     }
 
     private fun finishRegistration(kept: List<Sample>) {
-        Log.d(TAG, "finishRegistration: processing ${kept.size} samples for slot $currentSlot")
-
+        Log.d("TapeWear_Reg", "finishRegistration: processing ${kept.size} samples for slot $currentSlot")
         lockAeAwb(false)
         if (!demoMode && nightMode) setTorch(false)
 
-        var usedForEnroll = 0
         val frames = kept.map { it.bmp }
+        var usedForEnroll = 0
+        var saved = 0
 
         try {
             ModelManager.setActiveSlot(currentSlot)
-            val t0 = SystemClock.elapsedRealtime()
+
+            // Optional debug crops with YOLO boxes
             saveDetectionsDebug(frames)
 
+            val t0 = SystemClock.elapsedRealtime()
             usedForEnroll = ModelManager.enrollFromBitmaps(
-                context   = this,
-                frames    = frames,
+                context = this,
+                frames = frames,
                 maxEmbeds = 32,
-                slot      = currentSlot
+                slot = currentSlot
             )
             val t1 = SystemClock.elapsedRealtime()
             Log.d(
-                TAG,
+                "TapeWear_Reg",
                 "Enrollment created from $usedForEnroll frames in ${t1 - t0} ms."
             )
         } catch (e: Exception) {
-            overlayView.statusText = getString(
-                R.string.err_enroll,
-                e.message ?: ""
-            )
-            Log.e(TAG, "Enrollment failed: ${e.message}", e)
+            overlayView.statusText = getString(R.string.err_enroll, e.message ?: "")
+            Log.e("TapeWear_Reg", "Enrollment failed: ${e.message}", e)
         }
 
         val best = kept.sortedByDescending { it.blur }.take(48)
         val toSave = if (best.size >= 32) best else kept
-        var saved = 0
-
         toSave.forEachIndexed { idx, s ->
             try {
-                val f = File(
-                    cropsDir,
-                    "reg_${currentSlot}_${idx}_${s.ts}.jpg"
-                )
+                val f = File(cropsDir, "reg_${currentSlot}_${idx}_${s.ts}.jpg")
                 FileOutputStream(f).use { out ->
                     s.bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
                 }
                 saved++
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to save one crop: ${e.message}")
+                Log.w("TapeWear_Reg", "Failed to save one crop: ${e.message}")
             }
         }
-        Log.d(TAG, "Saved $saved out of ${toSave.size} crops for analysis.")
+        Log.d("TapeWear_Reg", "Saved $saved out of ${toSave.size} crops for analysis.")
+        kept.forEach { it.bmp.recycle() }
 
-        kept.forEach { it.
+        // Metrics: registration latency and frames
+        val now = SystemClock.elapsedRealtime()
+        val regTotalMs = if (regSessionStartMs > 0L) now - regSessionStartMs else 0L
+        MetricsLogger.logRegistrationSession(
+            ctx = this,
+            slot = currentSlot,
+            regTotalMs = regTotalMs,
+            keptSamples = kept.size,
+            usedForEnroll = usedForEnroll,
+            savedCrops = saved
+        )
+        MetricsLogger.logFramesPerRegistration(
+            ctx = this,
+            slot = currentSlot,
+            keptSamples = kept.size,
+            usedForEnroll = usedForEnroll,
+            savedCrops = saved
+        )
+        MetricsLogger.logSystemSnapshot(this, "reg_end_slot_${currentSlot}")
 
-
-            bmp.recycle() }
-
-        overlayView.statusText = if (usedForEnroll > 0) {
+        overlayView.statusText = if (usedForEnroll > 0)
             getString(R.string.saved_frames_and_model, saved, usedForEnroll)
-        } else {
+        else
             getString(R.string.saved_frames_no_model, saved)
-        }
 
         topMessage.text = getString(R.string.registration_complete)
         progressBar.progress = 100
         progressBar.visibility = View.GONE
         progressLine.visibility = View.GONE
-        btnExport.visibility = View.VISIBLE
+
+        // Show buttons: Capture again and Authenticate
+        btnAuth.visibility = View.VISIBLE
         btnCapture.visibility = View.VISIBLE
         flashCheckRegister.visibility = View.VISIBLE
         btnCapture.isEnabled = true
         regRunning.set(false)
     }
 
-    // Snapshot and metrics helpers
-
+    // --- Helpers ---
     private fun setTorch(on: Boolean) {
-        if (!hasFlash) return
-        try {
+        if (hasFlash) try {
             cameraManager.setTorchMode(cameraId, on)
-            Log.d(TAG, "Torch set to $on")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to set torch=$on: ${e.message}")
-        }
+        } catch (_: Exception) {}
     }
 
     private fun lockAeAwb(lock: Boolean) {
@@ -614,10 +528,7 @@ class RegisterActivity : AppCompatActivity() {
             b.set(CaptureRequest.CONTROL_AE_LOCK, lock)
             b.set(CaptureRequest.CONTROL_AWB_LOCK, lock)
             s.setRepeatingRequest(b.build(), null, mainHandler)
-            Log.d(TAG, "AE/AWB lock=$lock")
-        } catch (e: Exception) {
-            Log.w(TAG, "lockAeAwb($lock) failed: ${e.message}")
-        }
+        } catch (_: Exception) {}
     }
 
     private fun snapshotCurrent(): Bitmap? = try {
@@ -627,14 +538,8 @@ class RegisterActivity : AppCompatActivity() {
             val raw = vs.frameAt(currentVideoTimeMs) ?: return null
             currentVideoTimeMs += videoFrameStepMs
 
-            // Update on UI
             mainHandler.post {
-                lastDemoFrame?.recycle()
-                lastDemoFrame = raw.copy(
-                    raw.config ?: Bitmap.Config.ARGB_8888,
-                    false
-                )
-                demoImage.setImageBitmap(lastDemoFrame)
+                demoImage.setImageBitmap(raw)
             }
 
             raw.scale(640, 640, filter = true)
@@ -642,35 +547,21 @@ class RegisterActivity : AppCompatActivity() {
             textureView.getBitmap(640, 640)
         }
     } catch (e: Exception) {
-        Log.e(TAG, "snapshotCurrent failed: ${e.message}")
+        Log.e("TapeWear", "snapshotCurrent failed: ${e.message}")
         null
     }
 
-    private data class Sample(
-        val bmp: Bitmap,
-        val blur: Double,
-        val luma: Double,
-        val ts: Long
-    )
+    private data class Sample(val bmp: Bitmap, val blur: Double, val luma: Double, val ts: Long)
 
     private fun meanLuma(bmp: Bitmap): Double {
-        val w = bmp.width
-        val h = bmp.height
-        val row = IntArray(w)
-        var sum = 0L
-        var cnt = 0
-        var y = 0
+        val w = bmp.width; val h = bmp.height
+        val row = IntArray(w); var sum = 0L; var cnt = 0; var y = 0
         while (y < h) {
             bmp.getPixels(row, 0, w, 0, y, w, 1)
             var x = 0
             while (x < w) {
-                val p = row[x]
-                val r = (p shr 16) and 0xFF
-                val g = (p shr 8) and 0xFF
-                val b = p and 0xFF
-                sum += (r + g + b) / 3
-                cnt++
-                x += 2
+                val p = row[x]; val r = (p shr 16) and 0xFF; val g = (p shr 8) and 0xFF; val b = p and 0xFF
+                sum += (r + g + b) / 3; cnt++; x += 2
             }
             y += 2
         }
@@ -678,11 +569,9 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun blurMetric(bmp: Bitmap): Double {
-        val w = bmp.width
-        val h = bmp.height
+        val w = bmp.width; val h = bmp.height
         val row = IntArray(w)
-        var acc = 0.0
-        var cnt = 0
+        var acc = 0.0; var cnt = 0
         var y = 1
         while (y < h - 1) {
             bmp.getPixels(row, 0, w, 0, y, w, 1)
@@ -705,16 +594,13 @@ class RegisterActivity : AppCompatActivity() {
         val h = min(a.height, b.height)
         val rowA = IntArray(w)
         val rowB = IntArray(w)
-        var sum = 0L
-        var cnt = 0
+        var sum = 0L; var cnt = 0
         var y = 0
         while (y < h) {
             a.getPixels(rowA, 0, w, 0, y, w, 1)
             b.getPixels(rowB, 0, w, 0, y, w, 1)
             var x = 0
             while (x < w) {
-
-
                 val pa = rowA[x] and 0xFF
                 val pb = rowB[x] and 0xFF
                 sum += abs(pa - pb)
@@ -726,52 +612,6 @@ class RegisterActivity : AppCompatActivity() {
         return if (cnt == 0) 0.0 else sum.toDouble() / cnt
     }
 
-    // Export session
-
-    private fun exportSession() {
-        try {
-            val files = cropsDir.listFiles { f ->
-                f.isFile && (f.name.endsWith(".jpg", true) ||
-                        f.name.endsWith(".jpeg", true) ||
-                        f.name.endsWith(".png", true))
-            }?.toList().orEmpty()
-
-            if (files.isEmpty()) {
-                toast(getString(R.string.no_crops_to_export))
-                Log.d(TAG, "exportSession: no image crops in $cropsDir")
-                return
-            }
-
-            val uris = files.map { file ->
-                FileProvider.getUriForFile(
-                    this,
-                    "${packageName}.fileprovider",
-                    file
-                )
-            }
-
-            val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = "image/*"
-                putParcelableArrayListExtra(
-                    Intent.EXTRA_STREAM,
-                    ArrayList(uris)
-                )
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(
-                Intent.createChooser(
-                    send,
-                    getString(R.string.export_session_title)
-                )
-            )
-            Log.d(TAG, "exportSession: exported ${files.size} files")
-        } catch (e: Exception) {
-            Log.e(TAG, "exportSession failed: ${e.message}", e)
-            toast(getString(R.string.export_failed))
-        }
-    }
-
-    private fun toast(msg: String) {
+    private fun toast(msg: String) =
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-    }
 }

@@ -3,15 +3,36 @@ package com.example.tapewear
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.*
-import android.hardware.camera2.*
-import android.os.*
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.SurfaceTexture
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.os.Bundle
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
-import android.widget.*
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.CheckBox
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.Spinner
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -21,25 +42,24 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 
 class RegisterActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_NIGHT_MODE = "extra_night_mode"
-        private const val GOOD_FRAME_LIMIT = 30
+        private const val GOOD_FRAME_LIMIT = 10
     }
 
     private var nightMode = false
 
     // Set this to true to run with asset video instead of camera
-    private val demoMode = false
+    private val demoMode = true
 
     // Video demo source
     private var videoSource: VideoFrameSource? = null
     private var currentVideoTimeMs: Long = 0L
-    private var videoFrameStepMs: Long = 100L
+    private var videoFrameStepMs: Long = 66L
 
     // Views
     private lateinit var textureView: TextureView
@@ -325,8 +345,8 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun runRegistrationBurst() {
-        val totalMs = 1_000L
-        val stepMs  = 170L
+        val totalMs = 3_000L
+        val stepMs  = 200L
         val started = SystemClock.elapsedRealtime()
         val kept = ArrayList<Sample>()
         var prevFrame: Bitmap? = null
@@ -369,7 +389,7 @@ class RegisterActivity : AppCompatActivity() {
                     progressLine.text = getString(R.string.registering_percent, pct)
                 }
 
-                // Early stop once we have 30 good frames
+                // Early stop once we have 10 good frames
                 if (kept.size >= GOOD_FRAME_LIMIT) {
                     Log.d(
                         "TapeWear_Reg",
@@ -460,6 +480,7 @@ class RegisterActivity : AppCompatActivity() {
             Log.e("TapeWear_Reg", "Enrollment failed: ${e.message}", e)
         }
 
+        // Save a subset of crops for offline analysis (optional, not used by logger)
         val best = kept.sortedByDescending { it.blur }.take(48)
         val toSave = if (best.size >= 32) best else kept
         toSave.forEachIndexed { idx, s ->
@@ -479,21 +500,24 @@ class RegisterActivity : AppCompatActivity() {
         // Metrics: registration latency and frames
         val now = SystemClock.elapsedRealtime()
         val regTotalMs = if (regSessionStartMs > 0L) now - regSessionStartMs else 0L
+
+        // Global reg latency file
         MetricsLogger.logRegistrationSession(
             ctx = this,
             slot = currentSlot,
             regTotalMs = regTotalMs,
-            keptSamples = kept.size,
-            usedForEnroll = usedForEnroll,
-            savedCrops = saved
+            keptSamples = kept.size
         )
+
+        // Per-slot reg samples file
         MetricsLogger.logFramesPerRegistration(
             ctx = this,
             slot = currentSlot,
             keptSamples = kept.size,
-            usedForEnroll = usedForEnroll,
-            savedCrops = saved
+            usedForEnroll = usedForEnroll
         )
+
+        // System snapshot at end
         MetricsLogger.logSystemSnapshot(this, "reg_end_slot_${currentSlot}")
 
         overlayView.statusText = if (usedForEnroll > 0)
@@ -513,6 +537,7 @@ class RegisterActivity : AppCompatActivity() {
         btnCapture.isEnabled = true
         regRunning.set(false)
     }
+
 
     // --- Helpers ---
     private fun setTorch(on: Boolean) {

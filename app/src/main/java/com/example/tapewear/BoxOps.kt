@@ -14,18 +14,6 @@ object BoxOps {
         return Rect(L.toInt(), T.toInt(), R.toInt(), B.toInt())
     }
 
-    fun expand(r: RectF, scale: Float, w: Int, h: Int): RectF {
-        val cx = (r.left + r.right) * 0.5f
-        val cy = (r.top + r.bottom) * 0.5f
-        val hw = (r.width() * 0.5f) * scale
-        val hh = (r.height() * 0.5f) * scale
-        val L = (cx - hw).coerceIn(0f, (w - 1).toFloat())
-        val T = (cy - hh).coerceIn(0f, (h - 1).toFloat())
-        val R = (cx + hw).coerceIn(L + 1f, w.toFloat())
-        val B = (cy + hh).coerceIn(T + 1f, h.toFloat())
-        return RectF(L, T, R, B)
-    }
-
     fun iou(a: RectF, b: RectF): Float {
         val L = max(a.left, b.left)
         val T = max(a.top, b.top)

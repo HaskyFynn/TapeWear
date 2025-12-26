@@ -1,28 +1,15 @@
 <resources>
-    <string name="app_name">TapeWear</string>
+    <string name="app_name">TAWRing</string>
     <string name="tapewear_logo">TapeWear logo</string>
-    <string name="tapewear">TapeWear</string>
+    <string name="tapewear">TAWRing</string>
     <string name="simple_and_secure">Simple and secure</string>
     <string name="register">Register</string>
     <string name="authenticate">Authenticate</string>
     <string name="authenticate_at_register">Authenticate</string>
-    <string name="copyrighttapewear">© TapeWear</string>
-    <string name="position_your_puf_to_fill_the_capture_box_then_tap_capture">Position your PUF to fill the capture box, then tap Capture</string>
-    <string name="title_day_registration">Day registration</string>
+    <string name="copyrighttapewear">© TAWRing</string>
     <string name="torch_on">Torch ON</string>
-    <string name="cd_demo_image">Demo sample image</string>
-    <string name="cd_latest_preview">Latest captured preview</string>
-    <string name="angle_1_of_3">Angle 1 of 3</string>
-    <string name="hold_frontal">Hold frontal</string>
-    <string name="night_mode_torch">Night mode (Torch ON)</string>
-    <string name="data_collection">Data Collection</string>
-    <string name="collect_dataset">Collect Dataset</string>
-    <string name="start_tag_session">Start Tag Session</string>
     <string name="capture">Capture</string>
     <string name="preparing">Preparing…</string>
-    <string name="export_session_zip">Export session (.zip)</string>
-    <string name="data_collection_day">Data Collection Day</string>
-    <string name="img_jpg">img.jpg</string>
     <string name="register_day">Day registration</string>
     <string name="night_mode_torch_on">Night mode (Torch ON)</string>
     <string name="export_zip">Export session (.zip)</string>
@@ -39,21 +26,12 @@
     <string name="align_in_box">Align the tag in the box</string>
     <string name="align_and_tap">Align your pattern in the box and tap Capture</string>
     <string name="hold_steady">Hold steady…</string>
-    <string name="too_dark">Too dark</string>
-    <string name="too_bright">Too bright</string>
-    <string name="good_lighting">Good lighting</string>
     <string name="registering_percent">Registering… %1$d%%</string>
     <string name="registration_complete">Registration complete</string>
     <string name="saved_frames_and_model">Saved %1$d frames • model saved (%2$d samples)</string>
     <string name="saved_frames_no_model">Saved %1$d frames • model not saved</string>
 
     <string name="err_enroll">Enroll error: %1$s</string>
-    <string name="err_no_captures">No captures yet</string>
-    <string name="packaging_session">Packaging session…</string>
-    <string name="session_packaged">Session packaged</string>
-    <string name="export_failed">Export failed</string>
-    <string name="export_failed_msg">Export failed: %1$s</string>
-    <string name="share_zip">Share session zip</string>
 
     <string name="pattern_n">Pattern %1$d</string>
 
@@ -67,10 +45,6 @@
     <string name="auth_verdict_match">Verdict: MATCH ✅</string>
     <string name="auth_verdict_nomatch">Verdict: NO MATCH ❌</string>
     <string name="auth_holdsteady">HOLD STEADY</string>
-    <string name="auth_too_dark">Too dark</string>
-    <string name="auth_too_bright">Too bright</string>
-    <string name="auth_hold_steady">Hold steady…</string>
-    <string name="auth_good_light">Good Lighting</string>
     <string name="auth_unlocked">Unlocked</string>
 
 
@@ -80,7 +54,6 @@
     <string name="done">Done</string>
 
     <!-- Register -->
-    <string name="hold_steady_dots">Hold steady…</string>
 
 
     <!-- Authenticate -->
@@ -97,9 +70,5 @@
     <string name="cam_open_fail">Open camera failed: %1$s</string>
     <string name="perm_denied">Permission denied</string>
     <string name="preview_fail">Preview config failed</string>
-    <string name="training_model">Building your pattern model</string>
-    <string name="no_crops_to_export">no_crops_to_export</string>
-    <string name="export_session_title">export_session_title</string>
-    <string name="auth_no_frames">auth_no_frames</string>
 
 </resources>

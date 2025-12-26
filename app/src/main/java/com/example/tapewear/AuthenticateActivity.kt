@@ -31,7 +31,7 @@ class AuthenticateActivity : AppCompatActivity() {
     private var currentVideoTimeMs: Long = 0L
 
     // Manual demo flag (set true to force video-based demo)
-    private var demoMode = false
+    private var demoMode = true
     private var hasFlash = false
 
     // Views
@@ -316,11 +316,11 @@ class AuthenticateActivity : AppCompatActivity() {
         val night = flashCheck.isChecked
         if (!demoMode && night && hasFlash) setTorch(true)
 
-        authSessionStartMs = SystemClock.elapsedRealtime()
         val slot = ModelManager.getActiveSlot()
+        authSessionStartMs = SystemClock.elapsedRealtime()
         MetricsLogger.logSystemSnapshot(this, "auth_start_slot_$slot")
 
-        Log.d("TapeWear_Auth", "Starting auth burst (night=$night, demo=$demoMode)")
+        Log.d("TapeWear_Auth", "Starting auth burst (slot=$slot, night=$night, demo=$demoMode)")
 
         mainHandler.postDelayed({
             lockAeAwb(true)
@@ -329,59 +329,57 @@ class AuthenticateActivity : AppCompatActivity() {
     }
 
     private fun runAuthBurst(night: Boolean) {
-        val totalMs = 17L
-        val stepMs  = 220L
-        val started = SystemClock.elapsedRealtime()
-        val frames  = ArrayList<Bitmap>()
-        var prevSmall: Bitmap? = null
+        // This function is now designed to capture and process a single frame.
+        backgroundHandler?.post {
+            val frames = ArrayList<Bitmap>()
+            var prevSmall: Bitmap? = null // Keep for motion calculation if needed, though it will be 0.
+            val started = SystemClock.elapsedRealtime()
 
-        val run = object : Runnable {
-            override fun run() {
-                val elapsed = SystemClock.elapsedRealtime() - started
+            val sample = snapshotCurrent()
+            if (sample != null) {
+                // --- All original per-frame logic is maintained ---
+                val luma = meanLuma(sample)
+                val blur = blurMetric(sample)
+                // Motion will be 0 for a single frame, which is correct.
+                val motion = prevSmall?.let { meanAbsDiff(it, sample) } ?: 0.0
+                prevSmall?.recycle()
+                // We don't need to keep a copy for the *next* frame, but this is harmless.
+                prevSmall = sample.copy(sample.config ?: Bitmap.Config.ARGB_8888, false)
 
-                val sample = snapshotCurrent()
-                if (sample != null) {
-                    val luma = meanLuma(sample)
-                    val blur = blurMetric(sample)
-                    val motion = prevSmall?.let { meanAbsDiff(it, sample) } ?: 0.0
-                    prevSmall?.recycle()
-                    prevSmall = sample.copy(sample.config ?: Bitmap.Config.ARGB_8888, false)
+                val assessment = Quality.assess(luma, blur, motion, night)
+                Log.d(
+                    "TapeWear_Auth",
+                    "Single frame sample: luma=%.1f, blur=%.1f, motion=%.1f -> pass=${assessment.pass}"
+                        .format(luma, blur, motion)
+                )
 
-                    val assessment = Quality.assess(luma, blur, motion, night)
-                    Log.d(
-                        "TapeWear_Auth",
-                        "Frame sample: luma=%.1f, blur=%.1f, motion=%.1f -> pass=${assessment.pass}"
-                            .format(luma, blur, motion)
-                    )
-
-                    mainHandler.post {
-                        overlayView.statusText =
-                            "${getString(R.string.auth_holdsteady)} • ${assessment.hint}"
-                    }
-
-                    if (assessment.pass) {
-                        frames.add(sample)
-                    } else {
-                        sample.recycle()
-                    }
-                }
-
+                // Update UI with the quality assessment hint
                 mainHandler.post {
-                    val pct = (elapsed.toFloat() / totalMs * 100).coerceIn(0f, 100f).toInt()
-                    progressBar.progress = pct
-                    progressLine.text = getString(R.string.auth_authenticating_fmt, pct)
+                    overlayView.statusText =
+                        "${getString(R.string.auth_holdsteady)} • ${assessment.hint}"
                 }
 
-                if (elapsed < totalMs) {
-                    backgroundHandler?.postDelayed(this, stepMs)
+                // Only add the frame if it passes the quality check
+                if (assessment.pass) {
+                    frames.add(sample)
                 } else {
-                    prevSmall?.recycle()
-                    Log.d("TapeWear_Auth", "Auth burst finished, collected ${frames.size} frames.")
-                    mainHandler.post { finishAuth(frames, night) }
+                    sample.recycle() // Discard the bad frame
                 }
             }
+
+            // Because we are done immediately, update the progress bar to 100%
+            mainHandler.post {
+                progressBar.progress = 100
+                progressLine.text = getString(R.string.auth_authenticating_fmt, 100)
+            }
+
+            // --- Finalization logic from the old loop's 'else' block ---
+            prevSmall?.recycle() // Clean up the copied bitmap
+            Log.d("TapeWear_Auth", "Auth burst finished, collected ${frames.size} frames.")
+
+            // Proceed to finishAuth on the main thread
+            mainHandler.post { finishAuth(frames, night) }
         }
-        backgroundHandler?.post(run)
     }
 
     private fun finishAuth(frames: MutableList<Bitmap>, night: Boolean) {
@@ -389,6 +387,7 @@ class AuthenticateActivity : AppCompatActivity() {
         lockAeAwb(false)
         if (!demoMode && night) setTorch(false)
 
+        // Pick up to 5 sharpest frames
         val top = frames
             .map { it to blurMetric(it) }
             .sortedByDescending { it.second }
@@ -421,16 +420,13 @@ class AuthenticateActivity : AppCompatActivity() {
             finalSim = verdict.similarity.coerceIn(0f, 1f)
             isMatch = verdict.isMatch
             usedN = framesToScore.size.coerceAtMost(5)
-
         } else {
-            // Fallback – should not normally happen now
             finalSim = 0.5f
             isMatch = false
             usedN = 0
             Log.w("TapeWear_Auth", "Using fallback similarity")
         }
 
-        // Compute burstMs and fps for logging
         val totalFrames = frames.size
         val now = SystemClock.elapsedRealtime()
         val burstMs = if (authSessionStartMs > 0L) now - authSessionStartMs else 0L
@@ -460,6 +456,7 @@ class AuthenticateActivity : AppCompatActivity() {
             verdictText.text = getString(R.string.auth_verdict_match)
             overlayView.statusText = getString(R.string.auth_unlocked)
 
+
             resultCard.visibility = View.VISIBLE
             resultCard.scaleX = 0.90f
             resultCard.scaleY = 0.90f
@@ -484,29 +481,22 @@ class AuthenticateActivity : AppCompatActivity() {
 
         val slot = ModelManager.getActiveSlot()
 
-        // Metrics logging
+        // Per-attempt auth metrics (per-slot file)
         MetricsLogger.logAuthAttempt(
             ctx = this,
             slot = slot,
             similarity = finalSim,
             isMatch = isMatch,
             burstMs = burstMs,
-            fps = fps
+            framesCollected = totalFrames
         )
-        if (slot == 1) {
-            MetricsLogger.logAuthSlot1Repeat(
-                ctx = this,
-                similarity = finalSim,
-                isMatch = isMatch,
-                burstMs = burstMs,
-                fps = fps
-            )
-        }
-        MetricsLogger.updateBestAuth(this, slot, finalSim)
+
+        // System snapshot at end of auth
         MetricsLogger.logSystemSnapshot(this, "auth_end_slot_$slot")
 
         btnCapture.isEnabled = ModelManager.hasModel(this, slot)
     }
+
 
     // --- Locks / Torch / Snapshot / Metrics ---
     private fun setTorch(on: Boolean) {

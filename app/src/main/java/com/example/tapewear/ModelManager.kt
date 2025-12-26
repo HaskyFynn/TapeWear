@@ -22,6 +22,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
+
 object ModelManager {
 
     // ----------------- Detector plug-in -----------------
@@ -293,7 +294,7 @@ object ModelManager {
     }
 
     // Used only by direct score(), not by scoreFromBitmaps
-    var COSINE_THRESHOLD = 0.85f
+    var COSINE_THRESHOLD = 0.80f
 
     private fun modelsDir(ctx: Context) =
         File(ctx.filesDir, MODELS_DIR).apply { mkdirs() }
@@ -495,8 +496,8 @@ object ModelManager {
         val spread = maxSim - minSim
         val mean = sims.sum() / n
 
-        val matchThreshold = 0.85f
-        val maxSpread = 0.25f
+        val matchThreshold = 0.80f
+        val maxSpread = 0.20f
         val minFrames = 1
 
         val isStable = spread <= maxSpread
@@ -553,9 +554,9 @@ object ModelManager {
         private const val CENTER_CROP_RATIO = 0.90f
 
         // Block weights before final L2 normalisation
-        private const val PIX_WEIGHT = 0.7f
-        private const val GRAD_WEIGHT = 1.6f
-        private const val COLOR_WEIGHT = 1.8f
+        private const val PIX_WEIGHT = 0.35f
+        private const val GRAD_WEIGHT = 2.0f
+        private const val COLOR_WEIGHT = 3.0f
 
         override fun embed(src: Bitmap, roi: Rect): FloatArray {
             // Clamp ROI to image bounds

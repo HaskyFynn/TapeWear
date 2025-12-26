@@ -21,4 +21,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "TapeWear"
 include(":app")
-include(":opencv")

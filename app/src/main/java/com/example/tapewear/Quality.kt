@@ -61,7 +61,7 @@ object Quality {
                 Verdict(false, "Blurred")
 
             else ->
-                Verdict(true, "Good")
+                Verdict(true, "Good Lighting")
         }
     }
 }

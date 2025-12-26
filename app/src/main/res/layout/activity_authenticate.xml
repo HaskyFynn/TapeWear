@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/rootAuth"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/umich_blue">
@@ -35,7 +34,6 @@
 
     <!-- Top instructions -->
     <TextView
-        android:id="@+id/topMessageAuth"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
@@ -48,7 +46,6 @@
 
     <!-- Optional flash hint -->
     <TextView
-        android:id="@+id/flashHintAuth"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
@@ -63,7 +60,6 @@
 
     <!-- Latest ROI thumb (optional) -->
     <ImageView
-        android:id="@+id/previewThumbAuth"
         android:layout_width="96dp"
         android:layout_height="96dp"
         android:layout_gravity="top|end"
@@ -76,7 +72,6 @@
 
     <!-- Bottom panel -->
     <LinearLayout
-        android:id="@+id/bottomPanelAuth"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -128,7 +123,6 @@
 
         <!-- Action slot: button OR progress -->
         <FrameLayout
-            android:id="@+id/actionSlotAuth"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp">
@@ -144,7 +138,6 @@
                 android:textColor="@color/tw_bg" />
 
             <LinearLayout
-                android:id="@+id/progressSlotAuth"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"

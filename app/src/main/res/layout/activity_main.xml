@@ -26,7 +26,6 @@
 
         <!-- Logo -->
         <ImageView
-            android:id="@+id/logo"
             android:layout_width="108dp"
             android:layout_height="108dp"
             android:src="@drawable/ic_tapewear_logo"
@@ -34,7 +33,6 @@
 
         <!-- App name / motto -->
         <TextView
-            android:id="@+id/title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/tapewear"
@@ -46,7 +44,6 @@
 
 
         <TextView
-            android:id="@+id/motto"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/simple_and_secure"
@@ -56,7 +53,6 @@
 
         <!-- Buttons -->
         <LinearLayout
-            android:id="@+id/btnRow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"

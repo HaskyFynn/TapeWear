@@ -9,26 +9,22 @@ import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.opencv.android.OpenCVLoader
 
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContentView(R.layout.activity_main)
 
         // --- AppBar setup ---
         val appBar = findViewById<MaterialToolbar>(R.id.appbarInc)
         if (appBar == null) {
-            Log.e("TapeWear", "AppBar not found. Is include_appbar included in activity_main?")
+            Log.e("TAWRing", "AppBar not found. Is include_appbar included in activity_main?")
         } else {
-            appBar.title = "TapeWear"
+            appBar.title = "TAWRing"
             appBar.navigationIcon = null
         }
-
-        // --- OpenCV init (needed for ORBColorEmbedder) ---
-        val ocvOk = OpenCVLoader.initDebug()
-        Log.i("TapeWear_OpenCV", "OpenCV initDebug() = $ocvOk")
 
         // --- Global YOLO detector init (once, in background) ---
         if (ModelManager.detector == null) {

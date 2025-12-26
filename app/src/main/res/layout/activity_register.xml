@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/rootRegister"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/umich_blue">
@@ -89,7 +89,6 @@
 
     <!-- Bottom controls -->
     <LinearLayout
-        android:id="@+id/bottomPanelRegister"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -101,7 +100,6 @@
 
         <!-- Slot picker (moved inside bottom panel) -->
         <LinearLayout
-            android:id="@+id/slotRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -118,7 +116,8 @@
             <Spinner
                 android:id="@+id/spnSlot"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                tools:ignore="TouchTargetSizeCheck" />
         </LinearLayout>
 
         <!-- Night mode toggle -->
@@ -141,7 +140,6 @@
 
         <!-- Action slot: Capture OR Progress -->
         <FrameLayout
-            android:id="@+id/actionSlot"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp">

@@ -79,6 +79,27 @@
                 android:text="@string/authenticate"
                 android:textColor="@android:color/white"/>
         </LinearLayout>
+
+        <Button
+            android:id="@+id/btnGoSettings"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="⚙ Developer Settings"
+            android:textColor="#888888" />
+
+        <!-- Slots overview -->
+        <TextView
+            android:id="@+id/slotsStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="36dp"
+            android:paddingHorizontal="24dp"
+            android:textColor="#555555"
+            android:textSize="14sp"
+            android:lineSpacingExtra="4dp"
+            android:gravity="center_horizontal" />
     </LinearLayout>
 
     <!-- Footer -->

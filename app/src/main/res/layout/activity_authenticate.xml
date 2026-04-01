@@ -2,7 +2,8 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/umich_blue">
+    android:background="@color/umich_blue"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <!-- Top app bar (optional) -->
     <include
@@ -44,6 +45,21 @@
         android:textSize="18sp"
         android:textStyle="bold" />
 
+    <!-- ML / CV Pipeline Indicator -->
+    <TextView
+        android:id="@+id/modeIndicatorAuth"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|start"
+        android:layout_marginStart="16dp"
+        android:textColor="@color/tw_bg"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:background="#44000000"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp"
+        android:rotation="-90" />
+
     <!-- Optional flash hint -->
     <TextView
         android:layout_width="wrap_content"
@@ -78,47 +94,81 @@
         android:orientation="vertical"
         android:paddingHorizontal="20dp"
         android:paddingBottom="28dp"
+        android:paddingTop="16dp"
+        android:background="#B300274C"
         android:gravity="center_horizontal"
         android:animateLayoutChanges="true">
 
-        <!-- Row: pattern selector + night/flash -->
+        <TextView
+            android:id="@+id/runtimeThresholdsAuth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:textColor="@color/tw_bg"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:text="match=0.80 | yolo=0.45" />
+
+        <!-- Row: pattern selector -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Pattern:"
                 android:textColor="@color/tw_bg"
-                android:textSize="14sp" />
+                android:textSize="16sp"
+                android:layout_marginEnd="12dp" />
 
-            <Space
-                android:layout_width="8dp"
-                android:layout_height="1dp" />
-
-            <Spinner
-                android:id="@+id/patternSpinner"
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:minHeight="48dp"
                 android:layout_weight="1"
-                android:popupBackground="@color/tw_bg"
-                android:paddingVertical="8dp" />
+                android:orientation="vertical">
 
-            <Space
-                android:layout_width="12dp"
-                android:layout_height="1dp" />
+                <Spinner
+                    android:id="@+id/patternSpinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:popupBackground="@color/tw_bg"
+                    android:paddingVertical="4dp" />
+
+                <TextView
+                    android:id="@+id/slotStatusTextAuth"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginBottom="4dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Night mode toggle -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
 
             <CheckBox
                 android:id="@+id/flashCheck"
                 android:layout_width="wrap_content"
-                android:layout_height="48dp"
+                android:layout_height="wrap_content"
                 android:minHeight="48dp"
                 android:text="Night mode"
-                android:textColor="@color/tw_bg" />
+                android:textColor="@color/tw_bg"
+                android:textSize="18sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <!-- Action slot: button OR progress -->
@@ -134,8 +184,9 @@
                 android:text="Authenticate"
                 android:textAllCaps="false"
                 android:textSize="16sp"
-                android:backgroundTint="@color/umich_blue"
-                android:textColor="@color/tw_bg" />
+                app:backgroundTint="@color/umich_maize"
+                android:textColor="@color/umich_blue"
+                android:textStyle="bold" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -150,7 +201,8 @@
                     android:layout_height="8dp"
                     android:max="100"
                     android:progress="0"
-                    android:indeterminate="false" />
+                    android:indeterminate="false"
+                    android:progressDrawable="@drawable/progress_maize" />
 
                 <TextView
                     android:id="@+id/progressLineAuth"
@@ -170,7 +222,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="0dp"
+            android:background="@drawable/bg_result_card"
+            android:layout_marginTop="16dp"
             android:visibility="gone"
             android:animateLayoutChanges="true">
 
@@ -190,6 +243,41 @@
                 android:text="Confidence: —"
                 android:textColor="@color/tw_bg"
                 android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/stagesText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#BBBBBB"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Auth History -->
+        <LinearLayout
+            android:id="@+id/historyContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Recent Authentications"
+                android:textColor="@color/tw_bg"
+                android:textStyle="bold"
+                android:textSize="16sp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/historyText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#CCCCCC"
+                android:textSize="14sp"
+                android:lineSpacingExtra="4dp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

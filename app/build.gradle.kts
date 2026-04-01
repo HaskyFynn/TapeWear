@@ -20,6 +20,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -27,6 +30,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            ndk { abiFilters += listOf("arm64-v8a") }
         }
     }
     compileOptions {
@@ -45,7 +49,5 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    implementation("com.google.android.material:material:1.12.0")
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.3")
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
 }

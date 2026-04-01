@@ -28,8 +28,8 @@
     <string name="hold_steady">Hold steady…</string>
     <string name="registering_percent">Registering… %1$d%%</string>
     <string name="registration_complete">Registration complete</string>
-    <string name="saved_frames_and_model">Saved %1$d frames • model saved (%2$d samples)</string>
-    <string name="saved_frames_no_model">Saved %1$d frames • model not saved</string>
+    <string name="saved_frames_and_model">Captured %1$d quality frames • Enrolled with %2$d samples</string>
+    <string name="saved_frames_no_model">Captured %1$d quality frames • Enrollment failed</string>
 
     <string name="err_enroll">Enroll error: %1$s</string>
 
@@ -41,7 +41,7 @@
     <string name="auth_authenticating_fmt">Authenticating… %1$d%%</string>
     <string name="auth_model_present_fmt">Model for Pattern %1$d: present</string>
     <string name="auth_model_missing_fmt">Model for Pattern %1$d: not found</string>
-    <string name="auth_similarity_fmt">Similarity: %1$d%% (n=%2$d, slot=%3$d)</string>
+    <string name="auth_similarity_fmt">Similarity: %1$d%% (Threshold: %2$d%% / slot=%3$d)</string>
     <string name="auth_verdict_match">Verdict: MATCH ✅</string>
     <string name="auth_verdict_nomatch">Verdict: NO MATCH ❌</string>
     <string name="auth_holdsteady">HOLD STEADY</string>

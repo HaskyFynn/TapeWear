@@ -3,41 +3,38 @@ package com.example.tapewear
 object Quality {
 
     data class Gates(
-        val lumaLo: Double,   // minimum average brightness (0..255)
-        val lumaHi: Double,   // maximum average brightness (0..255)
-        val blurMin: Double,  // minimum edge strength (higher = sharper)
-        val motionMax: Double // maximum allowed inter frame change
+        var lumaLo: Double,   // minimum average brightness (0..255)
+        var lumaHi: Double,   // maximum average brightness (0..255)
+        var blurMin: Double,  // minimum edge strength (higher = sharper)
+        var motionMax: Double // maximum allowed inter frame change
     )
 
     // These are heuristic defaults. Tune per-device if needed.
     // Day mode: allow slightly dimmer images but not washed out.
-    val DAY = Gates(
-        lumaLo = 60.0,
-        lumaHi = 200.0,
-        blurMin = 20.0,
-        motionMax = 12.0
+    // Reduced default limits explicitly for real-world movement and blur
+    var DAY = Gates(
+        lumaLo = 40.0,
+        lumaHi = 240.0,
+        blurMin = 10.0,
+        motionMax = 30.0
     )
 
     // Night mode: require a bit more brightness, same sharpness and motion limits.
-    val NIGHT = Gates(
-        lumaLo = 80.0,
-        lumaHi = 220.0,
-        blurMin = 20.0,
-        motionMax = 12.0
+    var NIGHT = Gates(
+        lumaLo = 60.0,
+        lumaHi = 250.0,
+        blurMin = 10.0,
+        motionMax = 30.0
     )
 
     data class Verdict(
         val pass: Boolean,
+        val isIdeal: Boolean,
         val hint: String
     )
 
     /**
      * Decide whether this frame is good enough to keep for registration / auth.
-     *
-     *  - luma:   average brightness (0..255, from meanLuma)
-     *  - blur:   sharpness metric (higher = more edges, from blurMetric)
-     *  - motion: mean absolute difference vs previous frame (from meanAbsDiff)
-     *  - night:  whether we use NIGHT gates or DAY gates
      */
     fun assess(
         luma: Double,
@@ -47,21 +44,18 @@ object Quality {
     ): Verdict {
         val g = if (night) NIGHT else DAY
 
-        return when {
-            luma < g.lumaLo ->
-                Verdict(false, "Too dark")
-
-            luma > g.lumaHi ->
-                Verdict(false, "Too bright")
-
-            motion > g.motionMax ->
-                Verdict(false, "Hold steady...")
-
-            blur < g.blurMin ->
-                Verdict(false, "Blurred")
-
-            else ->
-                Verdict(true, "Good Lighting")
+        val hint = when {
+            luma < g.lumaLo -> "Too dark"
+            luma > g.lumaHi -> "Too bright"
+            motion > g.motionMax -> "Hold steady..."
+            blur < g.blurMin -> "Blurred"
+            else -> "Good Lighting"
         }
+
+        // Exactly match the Developer Setting threshold, no hidden math
+        val isIdeal = hint == "Good Lighting"
+        val pass = isIdeal 
+
+        return Verdict(pass, isIdeal, hint)
     }
 }

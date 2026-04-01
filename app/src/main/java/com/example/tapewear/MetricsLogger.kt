@@ -2,34 +2,49 @@ package com.example.tapewear
 
 import android.content.Context
 import android.os.Debug
-import android.os.SystemClock
 import android.util.Log
 import java.io.File
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object MetricsLogger {
 
     private const val TAG = "TapeWear_Metrics"
 
-    // --- GENERAL METRIC FILES (in /files/) ---
-    private const val FILE_SYSTEM_GENERAL = "general_system_metrics.csv"
-    private const val FILE_REG_LATENCY_GENERAL = "general_reg_latency.csv"
+    private fun authFile(night: Boolean) = if (night) "auth_log_night_v2.csv" else "auth_log_day_v2.csv"
+    private fun regFile(night: Boolean)  = if (night) "reg_log_night_v2.csv" else "reg_log_day_v2.csv"
+    private fun stagesFile(night: Boolean)= if (night) "auth_stages_log_night_v2.csv" else "auth_stages_log_day_v2.csv"
 
-    // --- SLOT-SPECIFIC FILE NAMES (inside /files/slot_X/) ---
-    private const val FILE_AUTH_ATTEMPTS_SLOT = "auth_attempts.csv"
-    private const val FILE_REG_SAMPLES_SLOT = "reg_samples.csv"
+    private val isoFormatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US)
 
-    /**
-     * Helper to write a line to a file, creating directories if needed.
-     */
-    private fun appendCsvLine(
-        file: File,
-        header: String,
-        line: String
+    // ---- helpers ----
+
+    @Synchronized
+    private fun now(): String = isoFormatter.format(Date())
+
+    class OverheadSnapshot(
+        val startCpuMs: Long = android.os.Process.getElapsedCpuTime()
     ) {
-        try {
-            file.parentFile?.mkdirs()
+        fun deltaCpuMs(): Long = android.os.Process.getElapsedCpuTime() - startCpuMs
+        fun currentProcessRamMb(): Double {
+            val rt = Runtime.getRuntime()
+            val javaUsed = rt.totalMemory() - rt.freeMemory()
+            val nativeUsed = Debug.getNativeHeapAllocatedSize()
+            return (javaUsed + nativeUsed) / 1_048_576.0
+        }
+    }
 
+    private fun getPublicFile(ctx: Context, filename: String): File {
+        val dir = ctx.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
+        val parent = File(dir, "TapeWear_Metrics")
+        parent.mkdirs()
+        return File(parent, filename)
+    }
+
+    private fun appendCsvLine(file: File, header: String, line: String) {
+        try {
             if (!file.exists()) {
                 file.writeText("$header\n")
             }
@@ -39,86 +54,167 @@ object MetricsLogger {
         }
     }
 
-    // ===================================================================
-    //                  GENERAL METRICS LOGGING
-    // ===================================================================
+    private data class RuntimeConfigSnapshot(
+        val matchThreshold: Float,
+        val yoloConfThreshold: Float,
+        val useMlEmbedder: Boolean,
+        val qualityMotionMax: Double,
+        val qualityBlurMin: Double,
+        val regBurstMs: Long,
+        val regTargetFrames: Int,
+        val detector: String
+    )
 
-    /**
-     * Logs a system-wide snapshot of CPU and memory usage.
-     * Format: ts_ms,stage,used_mb,thread_cpu_ms
-     */
-    fun logSystemSnapshot(ctx: Context, stage: String) {
-        val rt = Runtime.getRuntime()
-        val usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576.0
-        val threadCpuMs = Debug.threadCpuTimeNanos() / 1_000_000L
-        val ts = SystemClock.elapsedRealtime()
-
-        val header = "ts_ms,stage,used_mb,thread_cpu_ms"
-        val line = "%d,%s,%.2f,%d".format(ts, stage, usedMb, threadCpuMs)
-
-        val file = File(ctx.filesDir, FILE_SYSTEM_GENERAL)
-        appendCsvLine(file, header, line)
-    }
-
-    /**
-     * Logs the overall latency for a registration session.
-     * Format: ts_ms,slot,reg_total_ms,kept_samples
-     */
-    fun logRegistrationSession(
-        ctx: Context,
-        slot: Int,
-        regTotalMs: Long,
-        keptSamples: Int
-    ) {
-        val ts = SystemClock.elapsedRealtime()
-        val header = "ts_ms,slot,reg_total_ms,kept_samples"
-        val line = listOf(ts, slot, regTotalMs, keptSamples).joinToString(",")
-
-        val file = File(ctx.filesDir, FILE_REG_LATENCY_GENERAL)
-        appendCsvLine(file, header, line)
+    private fun runtimeConfig(nightMode: Boolean): RuntimeConfigSnapshot {
+        val gates = if (nightMode) Quality.NIGHT else Quality.DAY
+        val detector = if (ModelManager.detector is ModelManager.TFLiteYoloDetector) "yolo" else "none"
+        return RuntimeConfigSnapshot(
+            matchThreshold = AuthConfig.MATCH_THRESHOLD,
+            yoloConfThreshold = AuthConfig.YOLO_CONF_THRESHOLD,
+            useMlEmbedder = AuthConfig.USE_ML_EMBEDDER,
+            qualityMotionMax = gates.motionMax,
+            qualityBlurMin = gates.blurMin,
+            regBurstMs = AuthConfig.REG_BURST_MS,
+            regTargetFrames = AuthConfig.REG_TARGET_FRAMES,
+            detector = detector
+        )
     }
 
     // ===================================================================
-    //                  SLOT-SPECIFIC METRICS LOGGING
+    //  AUTH LOG — one row per authentication attempt
     // ===================================================================
 
-    /**
-     * Logs the number of frames kept for a registration session in a specific slot folder.
-     * Format: ts_ms,kept_samples,used_for_enroll
-     */
-    fun logFramesPerRegistration(
-        ctx: Context,
-        slot: Int,
-        keptSamples: Int,
-        usedForEnroll: Int
-    ) {
-        val ts = SystemClock.elapsedRealtime()
-        val header = "ts_ms,kept_samples,used_for_enroll"
-        val line = listOf(ts, keptSamples, usedForEnroll).joinToString(",")
-
-        val slotDir = File(ctx.filesDir, "slot_$slot")
-        val file = File(slotDir, FILE_REG_SAMPLES_SLOT)
-        appendCsvLine(file, header, line)
-    }
+    private const val AUTH_HEADER =
+        "datetime,slot,similarity,is_match,burst_ms," +
+        "frames_collected,frames_scored,night_mode,demo_mode," +
+        "used_mb,thread_cpu_ms," +
+        "match_threshold,yolo_conf_threshold,use_ml_embedder," +
+        "quality_motion_max,quality_blur_min,detector"
 
     /**
-     * Logs a specific authentication attempt in a specific slot folder.
-     * Format: ts_ms,similarity,is_match,burst_ms,frames_collected
+     * Log a complete authentication attempt. Call once per auth, after scoring.
      */
-    fun logAuthAttempt(
+    fun logAuth(
         ctx: Context,
         slot: Int,
         similarity: Float,
         isMatch: Boolean,
         burstMs: Long,
-        framesCollected: Int
+        framesCollected: Int,
+        framesScored: Int,
+        nightMode: Boolean,
+        demoMode: Boolean,
+        overhead: OverheadSnapshot?
     ) {
-        val ts = SystemClock.elapsedRealtime()
-        val header = "ts_ms,similarity,is_match,burst_ms,frames_collected"
-        val line = "%d,%.4f,%b,%d,%d".format(ts, similarity, isMatch, burstMs, framesCollected)
+        val cfg = runtimeConfig(nightMode)
+        val line = String.format(
+            Locale.US,
+            "%s,%d,%.4f,%b,%d,%d,%d,%b,%b,%.2f,%d,%.4f,%.4f,%b,%.4f,%.4f,%s",
+            now(), slot, similarity, isMatch, burstMs,
+            framesCollected, framesScored,
+            nightMode, demoMode,
+            overhead?.currentProcessRamMb() ?: 0.0,
+            overhead?.deltaCpuMs() ?: 0L,
+            cfg.matchThreshold,
+            cfg.yoloConfThreshold,
+            cfg.useMlEmbedder,
+            cfg.qualityMotionMax,
+            cfg.qualityBlurMin,
+            cfg.detector
+        )
+        val file = getPublicFile(ctx, authFile(nightMode))
+        appendCsvLine(file, AUTH_HEADER, line)
+        Log.d(TAG, "auth → $line")
+    }
 
-        val slotDir = File(ctx.filesDir, "slot_$slot")
-        val file = File(slotDir, FILE_AUTH_ATTEMPTS_SLOT)
-        appendCsvLine(file, header, line)
+    // ===================================================================
+    //  REG LOG — one row per registration session
+    // ===================================================================
+
+    private const val REG_HEADER =
+        "datetime,slot,reg_total_ms,kept_samples,used_for_enroll," +
+        "night_mode,demo_mode,used_mb,thread_cpu_ms," +
+        "match_threshold,yolo_conf_threshold,use_ml_embedder," +
+        "quality_motion_max,quality_blur_min,reg_burst_ms,reg_target_frames,detector"
+
+    /**
+     * Log a complete registration session. Call once per registration, after enrollment.
+     */
+    fun logRegistration(
+        ctx: Context,
+        slot: Int,
+        regTotalMs: Long,
+        keptSamples: Int,
+        usedForEnroll: Int,
+        nightMode: Boolean,
+        demoMode: Boolean,
+        overhead: OverheadSnapshot?
+    ) {
+        val cfg = runtimeConfig(nightMode)
+        val line = String.format(
+            Locale.US,
+            "%s,%d,%d,%d,%d,%b,%b,%.2f,%d,%.4f,%.4f,%b,%.4f,%.4f,%d,%d,%s",
+            now(), slot, regTotalMs, keptSamples, usedForEnroll,
+            nightMode, demoMode,
+            overhead?.currentProcessRamMb() ?: 0.0,
+            overhead?.deltaCpuMs() ?: 0L,
+            cfg.matchThreshold,
+            cfg.yoloConfThreshold,
+            cfg.useMlEmbedder,
+            cfg.qualityMotionMax,
+            cfg.qualityBlurMin,
+            cfg.regBurstMs,
+            cfg.regTargetFrames,
+            cfg.detector
+        )
+        val file = getPublicFile(ctx, regFile(nightMode))
+        appendCsvLine(file, REG_HEADER, line)
+        Log.d(TAG, "reg → $line")
+    }
+
+    // ===================================================================
+    //  AUTH STAGES LOG — per-stage latency breakdown
+    // ===================================================================
+
+    private const val STAGES_HEADER =
+        "datetime,slot,settle_ms,capture_ms,quality_ms," +
+        "detect_ms,embed_ms,cosine_ms,total_ms," +
+        "match_threshold,yolo_conf_threshold,use_ml_embedder," +
+        "quality_motion_max,quality_blur_min,detector"
+
+    /**
+     * Log per-stage latency breakdown for one auth attempt.
+     * Ideal for stacked bar charts showing where time is spent.
+     */
+    fun logAuthStages(
+        ctx: Context,
+        slot: Int,
+        settleMs: Long,
+        captureMs: Long,
+        qualityMs: Long,
+        detectMs: Long,
+        embedMs: Long,
+        cosineMs: Long,
+        totalMs: Long,
+        nightMode: Boolean
+    ) {
+        val cfg = runtimeConfig(nightMode)
+        val line = String.format(
+            Locale.US,
+            "%s,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%b,%.4f,%.4f,%s",
+            now(), slot,
+            settleMs, captureMs, qualityMs,
+            detectMs, embedMs, cosineMs,
+            totalMs,
+            cfg.matchThreshold,
+            cfg.yoloConfThreshold,
+            cfg.useMlEmbedder,
+            cfg.qualityMotionMax,
+            cfg.qualityBlurMin,
+            cfg.detector
+        )
+        val file = getPublicFile(ctx, stagesFile(nightMode))
+        appendCsvLine(file, STAGES_HEADER, line)
+        Log.d(TAG, "stages → $line")
     }
 }

@@ -1,16 +1,24 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.TapeWear" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/purple_200</item>
-        <item name="colorPrimaryVariant">@color/purple_700</item>
-        <item name="colorOnPrimary">@color/black</item>
-        <!-- Secondary brand color. -->
-        <item name="colorSecondary">@color/teal_200</item>
-        <item name="colorSecondaryVariant">@color/teal_200</item>
-        <item name="colorOnSecondary">@color/black</item>
-        <!-- Status bar color. -->
-        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
-        <!-- Customize your theme here. -->
+    <style name="Theme.TapeWear" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Brand colors - force Michigan palette even in dark mode -->
+        <item name="colorPrimary">@color/umich_blue</item>
+        <item name="colorOnPrimary">@color/tw_bg</item>
+        <item name="colorSecondary">@color/umich_maize</item>
+        <item name="colorOnSecondary">@color/umich_blue</item>
+
+        <!-- Surfaces -->
+        <item name="android:statusBarColor">@color/umich_blue</item>
+        <item name="android:navigationBarColor">@color/umich_blue</item>
+        <item name="colorSurface">@color/tw_text_primary</item>
+        <item name="colorOnSurface">@color/tw_bg</item>
+
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="fontFamily">sans-serif</item>
+
+        <!-- Buttons default -->
+        <item name="materialButtonStyle">@style/TW.Button</item>
+        <item name="textAppearanceBodyLarge">@style/TW.BodyLarge</item>
+        <item name="textAppearanceTitleLarge">@style/TW.TitleLarge</item>
     </style>
 </resources>

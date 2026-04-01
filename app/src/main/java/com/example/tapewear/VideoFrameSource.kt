@@ -14,13 +14,14 @@ class VideoFrameSource(context: Context, assetName: String) {
         retriever.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
         val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
         durationMs = durStr?.toLongOrNull() ?: 0L
+        afd.close()
     }
 
     fun frameAt(ms: Long): Bitmap? {
         if (durationMs <= 0L) return null
         // loop video when we go past the end
         val safeMs = ms % durationMs
-        return retriever.getFrameAtTime(safeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST)
+        return retriever.getFrameAtTime(safeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
     }
 
     fun close() = retriever.release()

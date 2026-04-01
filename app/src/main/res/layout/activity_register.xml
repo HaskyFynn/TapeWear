@@ -3,7 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/umich_blue">
+    android:background="@color/umich_blue"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <include
         android:id="@+id/appbarInc"
@@ -45,6 +46,21 @@
         android:textColor="@color/tw_bg"
         android:textSize="18sp"
         android:textStyle="bold" />
+
+    <!-- ML / CV Pipeline Indicator -->
+    <TextView
+        android:id="@+id/modeIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical|start"
+        android:layout_marginStart="16dp"
+        android:textColor="@color/tw_bg"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:background="#44000000"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="4dp"
+        android:rotation="-90" />
 
     <!-- Flash hint chip -->
     <TextView
@@ -95,8 +111,20 @@
         android:orientation="vertical"
         android:paddingHorizontal="20dp"
         android:paddingBottom="28dp"
+        android:paddingTop="16dp"
+        android:background="#B300274C"
         android:gravity="center_horizontal"
         android:animateLayoutChanges="true">
+
+        <TextView
+            android:id="@+id/runtimeThresholdsReg"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:textColor="@color/tw_bg"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:text="match=0.80 | yolo=0.45" />
 
         <!-- Slot picker (moved inside bottom panel) -->
         <LinearLayout
@@ -113,11 +141,30 @@
                 android:textColor="@color/tw_bg"
                 android:layout_marginEnd="12dp" />
 
-            <Spinner
-                android:id="@+id/spnSlot"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                tools:ignore="TouchTargetSizeCheck" />
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <Spinner
+                    android:id="@+id/spnSlot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:paddingVertical="4dp"
+                    tools:ignore="TouchTargetSizeCheck" />
+
+                <TextView
+                    android:id="@+id/slotStatusTextReg"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginBottom="4dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Night mode toggle -->
@@ -132,10 +179,12 @@
             <CheckBox
                 android:id="@+id/flashCheckRegister"
                 android:layout_width="wrap_content"
-                android:layout_height="48dp"
+                android:layout_height="wrap_content"
                 android:minHeight="48dp"
                 android:text="@string/night_mode_torch_on"
-                android:textColor="@color/tw_bg" />
+                android:textColor="@color/tw_bg"
+                android:textSize="18sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
         <!-- Action slot: Capture OR Progress -->
@@ -151,8 +200,9 @@
                 android:text="@string/capture"
                 android:textAllCaps="false"
                 android:textSize="16sp"
-                android:backgroundTint="@color/umich_blue"
-                android:textColor="@color/tw_bg" />
+                app:backgroundTint="@color/umich_maize"
+                android:textColor="@color/umich_blue"
+                android:textStyle="bold" />
 
             <LinearLayout
                 android:id="@+id/progressSlot"
@@ -168,7 +218,8 @@
                     android:layout_height="8dp"
                     android:max="100"
                     android:progress="0"
-                    android:indeterminate="false" />
+                    android:indeterminate="false"
+                    android:progressDrawable="@drawable/progress_maize" />
 
                 <TextView
                     android:id="@+id/progressLine"
@@ -193,6 +244,15 @@
             android:textSize="16sp"
             android:backgroundTint="@color/umich_blue"
             android:textColor="@color/tw_bg"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/stagesTextReg"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textColor="#BBBBBB"
+            android:textSize="14sp"
             android:visibility="gone" />
     </LinearLayout>
 

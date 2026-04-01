@@ -3,29 +3,32 @@ package com.example.tapewear
 import android.content.Context
 import android.graphics.*
 import android.os.SystemClock
-import android.util.Base64
 import android.util.Log
 import android.view.TextureView
 import androidx.core.graphics.scale
-import org.json.JSONObject
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
-import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import kotlin.math.PI
 import kotlin.math.atan2
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
-
+/**
+ * Facade for the auth pipeline.
+ *
+ * Detector and Embedder interfaces + implementations live here.
+ * Scoring, enrollment persistence, math, and config are delegated to:
+ *   [ScoringEngine], [EnrollmentStore], [MathUtils], [AuthConfig].
+ */
 object ModelManager {
 
-    // ----------------- Detector plug-in -----------------
+    // =====================================================================
+    //  Detector interface + implementations
+    // =====================================================================
 
     interface Detector : Closeable {
         fun detect(full: Bitmap): List<Detection>
@@ -35,43 +38,16 @@ object ModelManager {
     data class Detection(val box: RectF, val score: Float, val classIndex: Int)
 
     /**
-     * Simple detector that just maps the overlay box to bitmap coordinates.
-     * Used as a fallback when YOLO is not available.
+     * Simple detector that maps the overlay box to bitmap coordinates.
+     * Fallback when YOLO is not available.
      */
     class OverlayDetector(
         private val overlay: OverlayView?,
         private val texture: TextureView?
     ) : Detector {
         override fun detect(full: Bitmap): List<Detection> {
-            if (overlay == null || texture == null || texture.width <= 0 || texture.height <= 0) {
-                Log.w("TapeWear_YOLO", "OverlayDetector: fallback to full-frame box")
-                return listOf(
-                    Detection(
-                        RectF(0f, 0f, full.width.toFloat(), full.height.toFloat()),
-                        1f,
-                        0
-                    )
-                )
-            }
-
-            val vr = overlay.getFramingBox()
-            val vw = max(1, texture.width)
-            val vh = max(1, texture.height)
-
-            val l = vr.left * full.width / vw
-            val t = vr.top * full.height / vh
-            val r = vr.right * full.width / vw
-            val b = vr.bottom * full.height / vh
-
-            val mapped = RectF(
-                l.coerceIn(0f, full.width - 1f),
-                t.coerceIn(0f, full.height - 1f),
-                r.coerceIn(1f, full.width.toFloat()),
-                b.coerceIn(1f, full.height.toFloat())
-            )
-
-            Log.d("TapeWear_YOLO", "OverlayDetector box=$mapped")
-            return listOf(Detection(mapped, 1f, 0))
+            Log.w("TapeWear_YOLO", "OverlayDetector is disabled for research runs; returning empty detections.")
+            return emptyList()
         }
     }
 
@@ -135,6 +111,7 @@ object ModelManager {
             Log.i(TAG, "YOLO ready: inSize=$inSize out=[1,$outChannels,$outCount] in ${t1 - t0} ms")
         }
 
+        @Synchronized
         override fun detect(full: Bitmap): List<Detection> {
             val resized = full.scale(inSize, inSize, filter = true)
 
@@ -167,14 +144,8 @@ object ModelManager {
             val chans = output[0]
             if (chans.size != 5) {
                 resized.recycle()
-                Log.w("TapeWear_YOLO", "Unexpected channels=${chans.size}, falling back to full frame.")
-                return listOf(
-                    Detection(
-                        RectF(0f, 0f, full.width.toFloat(), full.height.toFloat()),
-                        1f,
-                        0
-                    )
-                )
+                Log.w("TapeWear_YOLO", "Unexpected channels=${chans.size}, returning empty detections.")
+                return emptyList()
             }
 
             val cxArr = chans[0]
@@ -183,83 +154,118 @@ object ModelManager {
             val hArr = chans[3]
             val objArr = chans[4]
 
-            val minConf = 0.45f
-            var bestIdx = -1
-            var bestScore = 0f
+            val minConf = AuthConfig.YOLO_CONF_THRESHOLD
+            val minAreaRatio = AuthConfig.YOLO_MIN_BOX_AREA_RATIO.coerceAtLeast(0f)
+            val nmsIou = AuthConfig.YOLO_NMS_IOU_THRESHOLD.coerceIn(0f, 1f)
+            val maxOut = AuthConfig.YOLO_MAX_DETECTIONS.coerceAtLeast(1)
+            val normalizedCoords = isLikelyNormalizedCoords(cxArr, cyArr, wArr, hArr)
+            val sx = full.width.toFloat() / inSize.toFloat()
+            val sy = full.height.toFloat() / inSize.toFloat()
+            val found = ArrayList<Detection>(8)
+            val modelAreaDen = inSize.toFloat() * inSize.toFloat()
+
             for (i in 0 until outCount) {
-                val s = objArr[i]
-                if (s >= minConf && s > bestScore) {
-                    bestScore = s
-                    bestIdx = i
-                }
+                val score = objArr[i]
+                if (score < minConf) continue
+
+                val boxModel = decodeRawBox(i, cxArr, cyArr, wArr, hArr, normalizedCoords)
+                val areaRatio = (boxModel.width() * boxModel.height()) / modelAreaDen
+                if (areaRatio < minAreaRatio) continue
+                val mapped = RectF(
+                    boxModel.left * sx,
+                    boxModel.top * sy,
+                    boxModel.right * sx,
+                    boxModel.bottom * sy
+                )
+                found.add(Detection(mapped, score, 0))
             }
 
-            if (bestIdx < 0) {
+            if (found.isEmpty()) {
                 resized.recycle()
                 Log.d("TapeWear_YOLO", "No object above $minConf, returning empty list.")
                 return emptyList()
             }
 
-            val boxModel = decodeBox(bestIdx, cxArr, cyArr, wArr, hArr)
-
-            val sx = full.width.toFloat() / inSize.toFloat()
-            val sy = full.height.toFloat() / inSize.toFloat()
-
-            val mapped = RectF(
-                boxModel.left * sx,
-                boxModel.top * sy,
-                boxModel.right * sx,
-                boxModel.bottom * sy
-            )
+            val top = nonMaxSuppression(found, iouThreshold = nmsIou, maxDetections = maxOut)
+            if (top.isEmpty()) {
+                resized.recycle()
+                Log.d("TapeWear_YOLO", "All detections removed by NMS/min-area filtering.")
+                return emptyList()
+            }
+            val best = top.first()
 
             resized.recycle()
 
-            Log.d("TapeWear_YOLO", "YOLO box=$mapped score=$bestScore")
-            return listOf(Detection(mapped, bestScore, 0))
+            Log.d(
+                "TapeWear_YOLO",
+                "YOLO detections raw=${found.size} kept=${top.size} best=${best.box} score=${"%.3f".format(best.score)}"
+            )
+            return top
         }
 
-        private fun decodeBox(
-            idx: Int,
+        private fun isLikelyNormalizedCoords(
             cxArr: FloatArray,
             cyArr: FloatArray,
             wArr: FloatArray,
             hArr: FloatArray
-        ): RectF {
-            val n80 = 80 * 80
-            val n40 = 40 * 40
-
-            val (g, offset) = when {
-                idx < n80 -> 80 to 0
-                idx < n80 + n40 -> 40 to n80
-                else -> 20 to (n80 + n40)
+        ): Boolean {
+            var maxAbs = 0f
+            val stride = (outCount / 64).coerceAtLeast(1)
+            var i = 0
+            while (i < outCount) {
+                maxAbs = maxOf(maxAbs, kotlin.math.abs(cxArr[i]))
+                maxAbs = maxOf(maxAbs, kotlin.math.abs(cyArr[i]))
+                maxAbs = maxOf(maxAbs, kotlin.math.abs(wArr[i]))
+                maxAbs = maxOf(maxAbs, kotlin.math.abs(hArr[i]))
+                i += stride
             }
+            return maxAbs <= 2f
+        }
 
-            val cell = idx - offset
-            val cy = cell / g
-            val cx = cell % g
+        private fun decodeRawBox(
+            idx: Int,
+            cxArr: FloatArray,
+            cyArr: FloatArray,
+            wArr: FloatArray,
+            hArr: FloatArray,
+            normalized: Boolean
+        ): RectF {
+            val cxPx = if (normalized) cxArr[idx] * inSize else cxArr[idx]
+            val cyPx = if (normalized) cyArr[idx] * inSize else cyArr[idx]
+            val wPx = (if (normalized) wArr[idx] * inSize else wArr[idx]).coerceAtLeast(1f)
+            val hPx = (if (normalized) hArr[idx] * inSize else hArr[idx]).coerceAtLeast(1f)
 
-            val gridCxNorm = (cx + 0.5f) / g.toFloat()
-            val gridCyNorm = (cy + 0.5f) / g.toFloat()
-
-            val netCxNorm = cxArr[idx].coerceIn(0f, 1f)
-            val netCyNorm = cyArr[idx].coerceIn(0f, 1f)
-            val centerX = (0.4f * netCxNorm + 0.6f * gridCxNorm).coerceIn(0f, 1f)
-            val centerY = (0.4f * netCyNorm + 0.6f * gridCyNorm).coerceIn(0f, 1f)
-
-            val wNorm = wArr[idx].coerceIn(0.05f, 1f)
-            val hNorm = hArr[idx].coerceIn(0.05f, 1f)
-
-            val cxPx = centerX * inSize
-            val cyPx = centerY * inSize
-            val wPx = wNorm * inSize
-            val hPx = hNorm * inSize
-
-            val left = (cxPx - wPx / 2f).coerceIn(0f, inSize - 1f)
-            val top = (cyPx - hPx / 2f).coerceIn(0f, inSize - 1f)
+            val left = (cxPx - wPx / 2f).coerceIn(0f, inSize.toFloat() - 1f)
+            val top = (cyPx - hPx / 2f).coerceIn(0f, inSize.toFloat() - 1f)
             val right = (cxPx + wPx / 2f).coerceIn(left + 1f, inSize.toFloat())
             val bottom = (cyPx + hPx / 2f).coerceIn(top + 1f, inSize.toFloat())
 
             return RectF(left, top, right, bottom)
+        }
+
+        private fun nonMaxSuppression(
+            detections: List<Detection>,
+            iouThreshold: Float,
+            maxDetections: Int
+        ): List<Detection> {
+            if (detections.isEmpty() || maxDetections <= 0) return emptyList()
+
+            val sorted = detections.sortedByDescending { it.score }
+            val selected = ArrayList<Detection>(maxDetections)
+
+            for (candidate in sorted) {
+                var shouldKeep = true
+                for (picked in selected) {
+                    if (BoxOps.iou(candidate.box, picked.box) > iouThreshold) {
+                        shouldKeep = false
+                        break
+                    }
+                }
+                if (!shouldKeep) continue
+                selected.add(candidate)
+                if (selected.size >= maxDetections) break
+            }
+            return selected
         }
 
         override fun close() {
@@ -269,297 +275,39 @@ object ModelManager {
 
     var detector: Detector? = null
 
-    // ----------------- Persistence -----------------
-
-    // bump version so we don't mix with old embeddings
-    private const val MODELS_DIR = "models_v4"
-    private const val LEGACY_ENROLL_FILE = "enroll.json"
-    private const val KEY_VEC = "vec"
-    private const val KEY_DIM = "dim"
-    private const val KEY_COUNT = "count"
-
-    @Volatile
-    private var _activeSlot: Int = 1
-    fun setActiveSlot(slot: Int) { _activeSlot = slot.coerceIn(1, 10) }
-    fun getActiveSlot(): Int = _activeSlot
-
-    data class Enroll(val mean: FloatArray, val count: Int) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-            other as Enroll
-            return count == other.count && mean.contentEquals(other.mean)
-        }
-        override fun hashCode(): Int = 31 * count + mean.contentHashCode()
-    }
-
-    // Used only by direct score(), not by scoreFromBitmaps
-    var COSINE_THRESHOLD = 0.80f
-
-    private fun modelsDir(ctx: Context) =
-        File(ctx.filesDir, MODELS_DIR).apply { mkdirs() }
-
-    private fun fileForSlot(ctx: Context, slot: Int): File =
-        File(modelsDir(ctx), "pattern_%02d.json".format(slot))
-
-    private fun saveEnroll(ctx: Context, mean: FloatArray, count: Int, slot: Int) {
-        val bb = ByteBuffer.allocate(mean.size * 4).apply {
-            order(ByteOrder.LITTLE_ENDIAN)
-            asFloatBuffer().put(mean)
-        }
-        val vecStr = Base64.encodeToString(bb.array(), Base64.NO_WRAP)
-        val js = JSONObject()
-            .put(KEY_DIM, mean.size)
-            .put(KEY_COUNT, count)
-            .put(KEY_VEC, vecStr)
-        fileForSlot(ctx, slot).writeText(js.toString())
-        Log.i(
-            "TapeWear_Model",
-            "Saved enroll slot=$slot dim=${mean.size} count=$count to ${fileForSlot(ctx, slot).absolutePath}"
-        )
-    }
-
-    fun loadEnroll(ctx: Context, slot: Int = getActiveSlot()): Enroll? {
-        val f = when {
-            fileForSlot(ctx, slot).exists() -> fileForSlot(ctx, slot)
-            slot == 1 && File(ctx.filesDir, LEGACY_ENROLL_FILE).exists() ->
-                File(ctx.filesDir, LEGACY_ENROLL_FILE)
-            else -> return null
-        }
-        return try {
-            val js = JSONObject(f.readText())
-            val dim = js.getInt(KEY_DIM)
-            val count = js.getInt(KEY_COUNT)
-            val vecStr = js.getString(KEY_VEC)
-            val bytes = Base64.decode(vecStr, Base64.NO_WRAP)
-            val fb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
-            val arr = FloatArray(dim)
-            fb.get(arr)
-            Log.i(
-                "TapeWear_Model",
-                "Loaded enroll slot=$slot dim=$dim count=$count from ${f.absolutePath}"
-            )
-            Enroll(arr, count)
-        } catch (e: Exception) {
-            Log.e("TapeWear_Model", "Failed to load enroll slot=$slot: ${e.message}", e)
-            null
-        }
-    }
-
-    fun hasModel(ctx: Context, slot: Int = getActiveSlot()): Boolean {
-        val f = fileForSlot(ctx, slot)
-        if (f.exists() && f.length() > 0) return true
-        if (slot == 1) {
-            val legacy = File(ctx.filesDir, LEGACY_ENROLL_FILE)
-            if (legacy.exists() && legacy.length() > 0) return true
-
-
-        }
-        return false
-    }
-
-    // ----------------- High-level APIs -----------------
-
-    fun enrollFromBitmaps(
-        context: Context,
-        frames: List<Bitmap>,
-        maxEmbeds: Int = 32,
-        slot: Int = getActiveSlot()
-    ): Int {
-        if (frames.isEmpty()) return 0
-        val det = detector ?: run {
-            Log.e("TapeWear_Model", "enrollFromBitmaps: detector is null")
-            return 0
-        }
-
-        val embList = arrayListOf<FloatArray>()
-        for ((idx, bmp) in frames.withIndex()) {
-            val dets = det.detect(bmp)
-            if (dets.isEmpty()) {
-                Log.d("TapeWear_Model", "enrollFromBitmaps: no detection for frame#$idx")
-                continue
-            }
-            val chosen = chooseRoi(dets)
-            val roi = BoxOps.clamp(chosen.box, bmp.width, bmp.height)
-            val roiRect = Rect(
-                roi.left.toInt(),
-                roi.top.toInt(),
-                roi.right.toInt(),
-                roi.bottom.toInt()
-            )
-            val t0 = SystemClock.elapsedRealtime()
-            val emb = embedder.embed(bmp, roiRect)
-            val t1 = SystemClock.elapsedRealtime()
-            Log.d(
-                "TapeWear_Model",
-                "enroll frame#$idx roi=$roiRect embDim=${emb.size} time=${t1 - t0}ms"
-            )
-            embList.add(emb)
-            if (embList.size >= maxEmbeds) break
-        }
-
-        if (embList.isEmpty()) {
-            Log.w("TapeWear_Model", "enrollFromBitmaps: no embeddings collected")
-            return 0
-        }
-
-        fitOrUpdate(embList, context, slot)
-        return embList.size
-    }
-
-    fun scoreFromBitmaps(
-        context: Context,
-        frames: List<Bitmap>,
-        take: Int = 3,
-        slot: Int = getActiveSlot()
-    ): Verdict {
-        if (frames.isEmpty()) return Verdict(-1f, false)
-        val det = detector ?: run {
-            Log.e("TapeWear_Score", "scoreFromBitmaps: detector is null")
-            return Verdict(-1f, false)
-        }
-
-        val enroll = loadEnroll(context, slot) ?: run {
-            Log.e("TapeWear_Score", "scoreFromBitmaps: no enroll model for slot=$slot")
-            return Verdict(-1f, false)
-        }
-        val proto = enroll.mean
-        if (proto.isEmpty()) {
-            Log.e("TapeWear_Score", "scoreFromBitmaps: enroll mean is empty")
-            return Verdict(-1f, false)
-        }
-
-        val simsPerFrame = arrayListOf<Float>()
-        val maxFrames = take.coerceAtLeast(1)
-        var idx = 0
-
-        for (bmp in frames) {
-            if (idx >= maxFrames) break
-            val dets = det.detect(bmp)
-            if (dets.isEmpty()) {
-                Log.d("TapeWear_Score", "scoreFromBitmaps: no detection for frame#$idx")
-                idx++
-                continue
-            }
-            val chosen = chooseRoi(dets)
-            val roi = BoxOps.clamp(chosen.box, bmp.width, bmp.height)
-            val roiRect = Rect(
-                roi.left.toInt(),
-                roi.top.toInt(),
-                roi.right.toInt(),
-                roi.bottom.toInt()
-            )
-
-            val t0 = SystemClock.elapsedRealtime()
-            val emb = embedder.embed(bmp, roiRect)
-            val t1 = SystemClock.elapsedRealtime()
-
-            if (emb.size != proto.size) {
-                Log.w(
-                    "TapeWear_Score",
-                    "frame#$idx embedding dim mismatch: emb=${emb.size} proto=${proto.size}"
-                )
-                idx++
-                continue
-            }
-            val sim = cosine(emb, proto).coerceIn(-1f, 1f)
-
-            // Just log the norm for sanity; not used in scoring
-            val normEmb = l2norm(emb.copyOf()).let { v ->
-                var ss = 0.0
-                for (x in v) ss += x * x
-                sqrt(ss).toFloat()
-            }
-
-            Log.d(
-                "TapeWear_Score",
-                "frame#$idx roi=$roiRect time=${t1 - t0}ms sim=%.4f norm=%.3f"
-                    .format(sim, normEmb)
-            )
-
-            simsPerFrame.add(sim)
-            idx++
-
-
-        }
-
-        if (simsPerFrame.isEmpty()) {
-            Log.w("TapeWear_Score", "scoreFromBitmaps: no valid frames scored")
-            return Verdict(-1f, false)
-        }
-
-        val sims = simsPerFrame.sorted()
-        val n = sims.size
-        val median = if (n % 2 == 1) sims[n / 2] else (sims[n / 2 - 1] + sims[n / 2]) / 2f
-        val minSim = sims.first()
-        val maxSim = sims.last()
-        val spread = maxSim - minSim
-        val mean = sims.sum() / n
-
-        val matchThreshold = 0.80f
-        val maxSpread = 0.20f
-        val minFrames = 1
-
-        val isStable = spread <= maxSpread
-        val strong = median >= matchThreshold
-        val enough = n >= minFrames
-
-        val isMatch = isStable && strong && enough
-
-        Log.d(
-            "TapeWear_Score",
-            "slot=$slot sims=$sims median=%.4f mean=%.4f spread=%.4f n=$n -> match=$isMatch"
-                .format(median, mean, spread)
-        )
-
-        return Verdict(median, isMatch)
-    }
-
-    private fun chooseRoi(dets: List<Detection>): Detection =
-        dets.maxByOrNull { it.score } ?: dets.first()
-
-    // ----------------- Embedder -----------------
+    // =====================================================================
+    //  Embedder interface + implementation
+    // =====================================================================
 
     interface Embedder : Closeable {
         fun embed(src: Bitmap, roi: Rect): FloatArray
         override fun close() {}
     }
 
-
     /**
-     * Hybrid patch + gradient + HSV color histogram:
-     *
-     *  - Take YOLO ROI, shrink to 90% around its center (removes noisy borders).
-     *  - Crop and resize to 64×64.
-     *  - Grayscale + mean/std normalization.
-     *  - Block 1: 32×32 downsampled intensities (1024-D).
-     *  - Block 2: 4×4 cells, 8-bin gradient histograms (128-D).
-     *  - Block 3: 16-bin per-channel HSV hist (H, S, V), L1-normalised and up-weighted (48-D).
-     *  - Concatenate with block weights and L2-normalise → 1200-D.
+     * Hybrid patch + gradient + HSV color histogram embedder.
+     * See [AuthConfig] for all tunable parameters.
      */
     object HybridPatchEmbedder : Embedder {
 
-        private const val SIZE = 64
-        private const val PATCH_SIZE = 32
-        private const val CELLS = 4
-        private const val ANGLE_BINS = 8
-        private const val COLOR_BINS = 16
+        private const val SIZE = AuthConfig.EMBED_CROP_SIZE
+        private const val PATCH_SIZE = AuthConfig.EMBED_PATCH_SIZE
+        private const val CELLS = AuthConfig.EMBED_CELLS
+        private const val ANGLE_BINS = AuthConfig.EMBED_ANGLE_BINS
+        private const val COLOR_BINS = AuthConfig.EMBED_COLOR_BINS
 
-        private const val PIX_DIM = PATCH_SIZE * PATCH_SIZE           // 1024
-        private const val GRAD_DIM = CELLS * CELLS * ANGLE_BINS       // 128
-        private const val COLOR_DIM = COLOR_BINS * 3                  // 48
-        private const val DIM = PIX_DIM + GRAD_DIM + COLOR_DIM        // 1200
+        private const val PIX_DIM = PATCH_SIZE * PATCH_SIZE
+        private const val GRAD_DIM = CELLS * CELLS * ANGLE_BINS
+        private const val COLOR_DIM = COLOR_BINS * 3
+        private const val DIM = PIX_DIM + GRAD_DIM + COLOR_DIM
 
-        // 0.90 center crop inside YOLO ROI
-        private const val CENTER_CROP_RATIO = 0.90f
+        private const val CENTER_CROP_RATIO = AuthConfig.EMBED_CENTER_CROP_RATIO
 
-        // Block weights before final L2 normalisation
-        private const val PIX_WEIGHT = 0.35f
-        private const val GRAD_WEIGHT = 2.0f
-        private const val COLOR_WEIGHT = 3.0f
+        private const val PIX_WEIGHT = AuthConfig.EMBED_PIX_WEIGHT
+        private const val GRAD_WEIGHT = AuthConfig.EMBED_GRAD_WEIGHT
+        private const val COLOR_WEIGHT = AuthConfig.EMBED_COLOR_WEIGHT
 
         override fun embed(src: Bitmap, roi: Rect): FloatArray {
-            // Clamp ROI to image bounds
             val left0 = roi.left.coerceIn(0, src.width - 1)
             val top0 = roi.top.coerceIn(0, src.height - 1)
             val right0 = roi.right.coerceIn(left0 + 1, src.width)
@@ -568,7 +316,6 @@ object ModelManager {
             val w0 = right0 - left0
             val h0 = bottom0 - top0
 
-            // Center crop: take 90% around ROI center
             val cx = left0 + w0 / 2f
             val cy = top0 + h0 / 2f
             val halfW = (w0 * CENTER_CROP_RATIO * 0.5f)
@@ -618,21 +365,14 @@ object ModelManager {
                     sum2 += vGray * vGray
                     idx++
 
-                    // HSV for color features
                     Color.colorToHSV(p, hsv)
-                    val hDeg = hsv[0]           // 0..360
-                    val sVal = hsv[1]           // 0..1
-                    val vVal = hsv[2]           // 0..1
+                    val hDeg = hsv[0]
+                    val sVal = hsv[1]
+                    val vVal = hsv[2]
 
-                    val hBin = ((hDeg / 360f) * COLOR_BINS)
-                        .toInt()
-                        .coerceIn(0, COLOR_BINS - 1)
-                    val sBin = (sVal * COLOR_BINS)
-                        .toInt()
-                        .coerceIn(0, COLOR_BINS - 1)
-                    val vBin = (vVal * COLOR_BINS)
-                        .toInt()
-                        .coerceIn(0, COLOR_BINS - 1)
+                    val hBin = ((hDeg / 360f) * COLOR_BINS).toInt().coerceIn(0, COLOR_BINS - 1)
+                    val sBin = (sVal * COLOR_BINS).toInt().coerceIn(0, COLOR_BINS - 1)
+                    val vBin = (vVal * COLOR_BINS).toInt().coerceIn(0, COLOR_BINS - 1)
 
                     histH[hBin] += 1f
                     histS[sBin] += 1f
@@ -646,27 +386,25 @@ object ModelManager {
             val std = sqrt(varc.coerceAtLeast(1e-6))
 
             for (i in 0 until nPix) {
-                val v = (gray[i] - mean).toFloat() / std.toFloat()
-                gray[i] = v
+                gray[i] = ((gray[i] - mean) / std).toFloat()
             }
 
-            // Pixel block 32×32 (downsample)
+            // Pixel block (downsample)
             val featPix = FloatArray(PIX_DIM)
-            val step = SIZE / PATCH_SIZE       // 2
+            val step = SIZE / PATCH_SIZE
             var k = 0
             var yy = 0
             while (yy < SIZE && k < PIX_DIM) {
                 var xx = 0
                 while (xx < SIZE && k < PIX_DIM) {
-                    val gi = yy * SIZE + xx
-                    featPix[k] = gray[gi]
+                    featPix[k] = gray[yy * SIZE + xx]
                     k++
                     xx += step
                 }
                 yy += step
             }
 
-            // Gradient block: 4×4 cells, 8 bins
+            // Gradient block
             val featGrad = FloatArray(GRAD_DIM)
             val cellW = SIZE / CELLS
             val cellH = SIZE / CELLS
@@ -681,9 +419,7 @@ object ModelManager {
 
                     var angle = atan2(gy.toDouble(), gx.toDouble())
                     if (angle < 0.0) angle += PI
-                    val bin = ((angle / PI) * ANGLE_BINS)
-                        .toInt()
-                        .coerceIn(0, ANGLE_BINS - 1)
+                    val bin = ((angle / PI) * ANGLE_BINS).toInt().coerceIn(0, ANGLE_BINS - 1)
 
                     var cxCell = x / cellW
                     var cyCell = y / cellH
@@ -707,7 +443,6 @@ object ModelManager {
             l1norm(histS)
             l1norm(histV)
 
-            // Up-weight color block
             for (i in histH.indices) histH[i] *= COLOR_WEIGHT
             for (i in histS.indices) histS[i] *= COLOR_WEIGHT
             for (i in histV.indices) histV[i] *= COLOR_WEIGHT
@@ -717,7 +452,6 @@ object ModelManager {
             val feat = FloatArray(DIM)
             var offset = 0
 
-            // Apply block weights
             for (i in featPix.indices) featPix[i] *= PIX_WEIGHT
             for (i in featGrad.indices) featGrad[i] *= GRAD_WEIGHT
 
@@ -731,63 +465,76 @@ object ModelManager {
             offset += COLOR_BINS
             System.arraycopy(histV, 0, feat, offset, COLOR_BINS)
 
-            return l2norm(feat)
+            return MathUtils.l2norm(feat)
         }
     }
 
-    var embedder: Embedder = HybridPatchEmbedder
+    var cvEmbedder: Embedder = HybridPatchEmbedder
+    var mlEmbedder: Embedder? = null
 
-    // ----------------- Fit and score helpers -----------------
+    val embedder: Embedder
+        get() = if (AuthConfig.USE_ML_EMBEDDER && mlEmbedder != null) mlEmbedder!! else cvEmbedder
 
-    fun fitOrUpdate(embeds: List<FloatArray>, ctx: Context, slot: Int = getActiveSlot()) {
-        if (embeds.isEmpty()) return
-        val dim = embeds[0].size
-        val mean = FloatArray(dim)
-        for (e in embeds) {
-            for (i in 0 until dim) {
-                mean[i] += e[i]
-            }
+    // =====================================================================
+    //  Facade — delegates to EnrollmentStore and ScoringEngine
+    // =====================================================================
+
+    // Backward-compatible factory functions (typealias can't live inside an object)
+    fun Verdict(similarity: Float, isMatch: Boolean) = ScoringEngine.Verdict(similarity, isMatch)
+    fun ScoredResult(
+        verdict: ScoringEngine.Verdict,
+        scoredFrames: Int = 0,
+        detectMs: Long,
+        embedMs: Long,
+        cosineMs: Long
+    ) = ScoringEngine.ScoredResult(verdict, scoredFrames, detectMs, embedMs, cosineMs)
+
+    fun setActiveSlot(slot: Int) { EnrollmentStore.activeSlot = slot }
+    fun getActiveSlot(): Int = EnrollmentStore.activeSlot
+
+    fun hasModel(ctx: Context, slot: Int = getActiveSlot()): Boolean =
+        EnrollmentStore.hasModel(ctx, slot)
+
+    fun loadEnroll(ctx: Context, slot: Int = getActiveSlot()) =
+        EnrollmentStore.load(ctx, slot)
+
+    var COSINE_THRESHOLD: Float
+        get() = AuthConfig.MATCH_THRESHOLD
+        set(_) {}   // kept for source compat; real value in AuthConfig
+
+    fun scoreFromBitmaps(
+        context: Context,
+        frames: List<Bitmap>,
+        take: Int = 3,
+        slot: Int = getActiveSlot()
+    ): ScoringEngine.ScoredResult {
+        val det = detector ?: run {
+            Log.e("TapeWear_Score", "scoreFromBitmaps: detector is null")
+            return ScoredResult(Verdict(-1f, false), scoredFrames = 0, detectMs = 0, embedMs = 0, cosineMs = 0)
         }
-        for (i in 0 until dim) mean[i] /= embeds.size.toFloat()
-        saveEnroll(ctx, mean, embeds.size, slot)
+        return ScoringEngine.scoreFromBitmaps(context, det, embedder, frames, take, slot)
     }
 
-    data class Verdict(val similarity: Float, val isMatch: Boolean)
-
-    fun score(emb: FloatArray, ctx: Context, slot: Int = getActiveSlot()): Verdict {
-        val en = loadEnroll(ctx, slot) ?: return Verdict(-1f, false)
-        val sim = cosine(emb, en.mean)
-        return Verdict(sim, sim >= COSINE_THRESHOLD)
-    }
-
-    private fun cosine(a: FloatArray, b: FloatArray): Float {
-        val n = min(a.size, b.size)
-        var num = 0.0
-        var da = 0.0
-        var db = 0.0
-        var i = 0
-        while (i < n) {
-            val x = a[i].toDouble()
-            val y = b[i].toDouble()
-            num += x * y
-            da += x * x
-            db += y * y
-            i++
+    fun enrollFromBitmaps(
+        context: Context,
+        frames: List<Bitmap>,
+        maxEmbeds: Int = AuthConfig.MAX_ENROLL_EMBEDS,
+        slot: Int = getActiveSlot()
+    ): Int {
+        val det = detector ?: run {
+            Log.e("TapeWear_Model", "enrollFromBitmaps: detector is null")
+            return 0
         }
-        val denom = (sqrt(da) * sqrt(db)).let { if (it == 0.0) 1.0 else it }
-        return (num / denom).toFloat()
+        return ScoringEngine.enrollFromBitmaps(context, det, embedder, frames, maxEmbeds, slot)
     }
 
-    private fun l2norm(v: FloatArray): FloatArray {
-        var s = 0.0
-        for (x in v) s += x * x
-        val n = if (s <= 0.0) 1.0 else sqrt(s)
-        for (i in v.indices) v[i] = (v[i] / n).toFloat()
-        return v
-    }
+    fun score(emb: FloatArray, ctx: Context, slot: Int = getActiveSlot()): ScoringEngine.Verdict =
+        ScoringEngine.score(emb, ctx, slot)
 
     fun close() {
-        detector?.close()
-        embedder.close()
+        try { detector?.close() } catch (_: Exception) {}
+        detector = null
+        try { mlEmbedder?.close() } catch (_: Exception) {}
+        mlEmbedder = null
     }
 }

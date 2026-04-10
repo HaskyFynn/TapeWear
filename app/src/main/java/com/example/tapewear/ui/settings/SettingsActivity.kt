@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.ui.settings
 
 import android.os.Bundle
 import android.os.Handler
@@ -10,6 +10,12 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doAfterTextChanged
+import com.example.tapewear.Quality
+import com.example.tapewear.R
+import com.example.tapewear.config.AuthConfig
+import com.example.tapewear.data.ExperimentStore
+import com.example.tapewear.data.SettingsStore
+import com.example.tapewear.ml.CrossAuthEngine
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout

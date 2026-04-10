@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.config
 
 /**
  * Centralized configuration constants for the authentication pipeline.

@@ -1,7 +1,9 @@
-package com.example.tapewear
+package com.example.tapewear.data
 
 import android.content.Context
 import android.util.Log
+import com.example.tapewear.MetricsLogger
+import com.example.tapewear.config.AuthConfig
 import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer

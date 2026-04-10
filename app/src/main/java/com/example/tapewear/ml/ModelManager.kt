@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.ml
 
 import android.content.Context
 import android.graphics.*
@@ -6,6 +6,11 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.TextureView
 import androidx.core.graphics.scale
+import com.example.tapewear.BoxOps
+import com.example.tapewear.config.AuthConfig
+import com.example.tapewear.data.EnrollmentStore
+import com.example.tapewear.ui.camera.OverlayView
+import com.example.tapewear.util.MathUtils
 import org.tensorflow.lite.Interpreter
 import java.io.Closeable
 import java.io.FileInputStream

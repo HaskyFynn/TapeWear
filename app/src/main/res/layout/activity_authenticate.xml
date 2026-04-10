@@ -28,7 +28,7 @@
         android:layout_height="match_parent" />
 
     <!-- ROI overlay -->
-    <com.example.tapewear.OverlayView
+    <com.example.tapewear.ui.camera.OverlayView
         android:id="@+id/overlayViewAuth"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />

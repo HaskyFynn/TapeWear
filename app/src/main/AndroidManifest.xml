@@ -30,20 +30,20 @@
 
         <!-- Your launcher activity -->
         <activity
-            android:name=".AuthenticateActivity"
+            android:name="com.example.tapewear.ui.auth.AuthenticateActivity"
             android:exported="false" />
 
         <activity
-            android:name=".RegisterActivity"
+            android:name="com.example.tapewear.ui.register.RegisterActivity"
             android:exported="false" />
 
         <activity
-            android:name=".SettingsActivity"
+            android:name="com.example.tapewear.ui.settings.SettingsActivity"
             android:exported="false" />
 
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.tapewear.ui.main.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.ui.auth
 
 import android.Manifest
 import android.content.Context
@@ -22,6 +22,20 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.scale
 import androidx.core.widget.doAfterTextChanged
+import com.example.tapewear.MetricsLogger
+import com.example.tapewear.Quality
+import com.example.tapewear.R
+import com.example.tapewear.camera.TorchTelemetryTracker
+import com.example.tapewear.camera.VideoFrameSource
+import com.example.tapewear.config.AuthConfig
+import com.example.tapewear.data.ExperimentStore
+import com.example.tapewear.data.SettingsStore
+import com.example.tapewear.ml.ModelManager
+import com.example.tapewear.ml.TfLiteEmbedder
+import com.example.tapewear.ui.camera.OverlayView
+import com.example.tapewear.ui.main.MainActivity
+import com.example.tapewear.util.ImageUtils
+import com.example.tapewear.util.ScreenshotUtils
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
@@ -69,7 +83,6 @@ class AuthenticateActivity : AppCompatActivity() {
     private var session: CameraCaptureSession? = null
     private var cameraId: String? = null
     private var previewSize = Size(640, 480)
-    private var sensorOrientation: Int = 90
     private var fpsRanges: Array<Range<Int>>? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val torchTelemetry by lazy { TorchTelemetryTracker(cameraManager) }
@@ -366,7 +379,6 @@ class AuthenticateActivity : AppCompatActivity() {
                 val ch = cameraManager.getCameraCharacteristics(cameraId!!)
                 hasFlash = ch.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
                 fpsRanges = ch.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
-                sensorOrientation = ch.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
                 torchTelemetry.configure(cameraId, hasFlash)
 
                 // Choose optimal preview size from camera capabilities

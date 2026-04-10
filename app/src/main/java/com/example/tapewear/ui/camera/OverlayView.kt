@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.ui.camera
 
 import android.content.Context
 import android.graphics.*

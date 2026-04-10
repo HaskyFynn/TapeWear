@@ -1,8 +1,9 @@
-package com.example.tapewear
+package com.example.tapewear.camera
 
 import android.hardware.camera2.CameraManager
 import android.os.Handler
 import android.os.Looper
+import com.example.tapewear.MetricsLogger
 
 /**
  * Tracks torch callback acknowledgements so metrics can distinguish

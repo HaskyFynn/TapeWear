@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.ml
 
 import android.content.Context
 import android.graphics.Bitmap

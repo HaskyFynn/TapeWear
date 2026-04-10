@@ -1,6 +1,8 @@
-package com.example.tapewear
+package com.example.tapewear.data
 
 import android.content.Context
+import com.example.tapewear.Quality
+import com.example.tapewear.config.AuthConfig
 
 object SettingsStore {
     private const val PREFS_NAME = "tapewear_settings"

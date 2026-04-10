@@ -1,13 +1,10 @@
-package com.example.tapewear
+package com.example.tapewear.ui.register
 
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Matrix
-import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
@@ -15,7 +12,6 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.params.StreamConfigurationMap
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -42,8 +38,23 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.graphics.scale
 import androidx.core.widget.doAfterTextChanged
+import com.example.tapewear.MetricsLogger
+import com.example.tapewear.Quality
+import com.example.tapewear.R
+import com.example.tapewear.camera.TorchTelemetryTracker
+import com.example.tapewear.camera.VideoFrameSource
+import com.example.tapewear.config.AuthConfig
+import com.example.tapewear.data.EnrollmentStore
+import com.example.tapewear.data.ExperimentStore
+import com.example.tapewear.data.SettingsStore
+import com.example.tapewear.ml.ModelManager
+import com.example.tapewear.ml.TfLiteEmbedder
+import com.example.tapewear.ui.auth.AuthenticateActivity
+import com.example.tapewear.ui.camera.OverlayView
+import com.example.tapewear.ui.main.MainActivity
+import com.example.tapewear.util.ImageUtils
+import com.example.tapewear.util.ScreenshotUtils
 import java.io.File
-import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
@@ -73,8 +84,6 @@ class RegisterActivity : AppCompatActivity() {
     private lateinit var demoImage: ImageView
     private lateinit var btnCapture: Button
     private lateinit var btnAuth: Button
-    private lateinit var previewThumb: ImageView
-    private lateinit var previewLabel: TextView
     private lateinit var flashHint: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var progressLine: TextView
@@ -95,7 +104,6 @@ class RegisterActivity : AppCompatActivity() {
     private var session: CameraCaptureSession? = null
     private var cameraId: String = "0"
     private var previewSize = Size(640, 480)
-    private var sensorOrientation: Int = 90
     private val mainHandler = Handler(Looper.getMainLooper())
     private var hasFlash = false
     private val torchTelemetry by lazy { TorchTelemetryTracker(cameraManager) }
@@ -171,8 +179,6 @@ class RegisterActivity : AppCompatActivity() {
         demoImage     = findViewById(R.id.demoImage)
         btnCapture    = findViewById(R.id.btnCapture)
         btnAuth       = findViewById(R.id.btnExport)   // reuse old Export button as "Authenticate"
-        previewThumb  = findViewById(R.id.previewThumb)
-        previewLabel  = findViewById(R.id.previewLabel)
         flashHint     = findViewById(R.id.flashHint)
         progressBar   = findViewById(R.id.progressBar)
         progressLine  = findViewById(R.id.progressLine)
@@ -351,7 +357,6 @@ class RegisterActivity : AppCompatActivity() {
 
             val chars = cameraManager.getCameraCharacteristics(cameraId)
             hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-            sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
             torchTelemetry.configure(cameraId, hasFlash)
 
             // Choose optimal preview size from camera capabilities
@@ -1053,42 +1058,6 @@ class RegisterActivity : AppCompatActivity() {
         bg.post(run)
     }
 
-    private fun saveDetectionsDebug(frames: List<Bitmap>) {
-        val det = ModelManager.detector ?: return
-
-        val outDir = File(sessionDir, "slot_${"%02d".format(currentSlot)}_bboxes").apply { mkdirs() }
-
-        val boxPaint = Paint().apply {
-            color = Color.RED
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-        }
-
-        frames.forEachIndexed { idx, bmp ->
-            try {
-                val dets = det.detect(bmp)
-                if (dets.isEmpty()) return@forEachIndexed
-
-                val boxed = bmp.copy(Bitmap.Config.ARGB_8888, true)
-                val canvas = Canvas(boxed)
-
-                dets.forEach { d ->
-                    canvas.drawRect(d.box, boxPaint)
-                }
-
-                val f = File(outDir, "slot${"%02d".format(currentSlot)}_frame${"%03d".format(idx)}.jpg")
-                FileOutputStream(f).use { out ->
-                    boxed.compress(Bitmap.CompressFormat.JPEG, 92, out)
-                }
-                boxed.recycle()
-            } catch (e: Exception) {
-                Log.w("TapeWear_Reg", "saveDetectionsDebug failed for one frame: ${e.message}")
-
-
-            }
-        }
-    }
-
     private fun finishRegistration(kept: List<Sample>) {
         Log.d("TapeWear_Reg", "finishRegistration: processing ${kept.size} samples for slot $currentSlot")
         lockAeAwb(false)
@@ -1167,9 +1136,6 @@ class RegisterActivity : AppCompatActivity() {
 
             try {
                 ModelManager.setActiveSlot(currentSlot)
-
-                // [LATENCY FIX] Disabled redundant YOLO box rendering used for offline debugging
-                // saveDetectionsDebug(frames)
 
                 val t0 = SystemClock.elapsedRealtime()
                 usedForEnroll = ModelManager.enrollFromBitmaps(

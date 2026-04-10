@@ -29,7 +29,7 @@
         android:layout_height="match_parent" />
 
     <!-- Overlay: draws maize ROI + status text -->
-    <com.example.tapewear.OverlayView
+    <com.example.tapewear.ui.camera.OverlayView
         android:id="@+id/overlayView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
@@ -75,32 +75,6 @@
         android:text="@string/torch_on"
         android:textColor="#000000"
         android:textStyle="bold"
-        android:visibility="gone" />
-
-    <!-- Latest thumb preview -->
-    <ImageView
-        android:id="@+id/previewThumb"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="12dp"
-        android:layout_marginEnd="12dp"
-        android:scaleType="centerCrop"
-        android:background="#FFFFFFFF"
-        android:elevation="2dp"
-        android:padding="3dp"
-        android:visibility="gone"
-        android:contentDescription="@string/cd_preview_thumb" />
-
-    <TextView
-        android:id="@+id/previewLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="96dp"
-        android:layout_marginEnd="12dp"
-        android:textColor="@color/tw_bg"
-        android:textSize="11sp"
         android:visibility="gone" />
 
     <!-- Bottom controls -->

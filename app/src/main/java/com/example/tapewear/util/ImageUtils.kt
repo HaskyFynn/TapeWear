@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.util
 
 import android.graphics.Bitmap
 import kotlin.math.abs

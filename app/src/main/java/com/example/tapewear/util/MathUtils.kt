@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.util
 
 import kotlin.math.min
 import kotlin.math.sqrt

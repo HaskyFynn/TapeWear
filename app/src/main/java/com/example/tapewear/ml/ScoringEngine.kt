@@ -1,10 +1,14 @@
-package com.example.tapewear
+package com.example.tapewear.ml
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
+import com.example.tapewear.BoxOps
+import com.example.tapewear.config.AuthConfig
+import com.example.tapewear.data.EnrollmentStore
+import com.example.tapewear.util.MathUtils
 
 /**
  * The detect → embed → score pipeline.

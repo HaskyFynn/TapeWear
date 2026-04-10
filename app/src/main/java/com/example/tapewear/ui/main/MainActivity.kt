@@ -1,4 +1,4 @@
-package com.example.tapewear
+package com.example.tapewear.ui.main
 
 import android.Manifest
 import android.content.Intent
@@ -11,6 +11,15 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.example.tapewear.R
+import com.example.tapewear.config.AuthConfig
+import com.example.tapewear.data.ExperimentStore
+import com.example.tapewear.data.SettingsStore
+import com.example.tapewear.ml.ModelManager
+import com.example.tapewear.ml.TfLiteEmbedder
+import com.example.tapewear.ui.auth.AuthenticateActivity
+import com.example.tapewear.ui.register.RegisterActivity
+import com.example.tapewear.ui.settings.SettingsActivity
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

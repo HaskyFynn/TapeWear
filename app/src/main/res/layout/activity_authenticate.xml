@@ -5,7 +5,7 @@
     android:background="@color/umich_blue"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <!-- Top app bar (optional) -->
+    <!-- Top app bar -->
     <include
         android:id="@+id/appbarInc"
         layout="@layout/include_appbar"
@@ -42,7 +42,7 @@
         android:paddingHorizontal="20dp"
         android:text="Select a pattern, align it in the box, then tap Authenticate"
         android:textColor="@color/tw_bg"
-        android:textSize="18sp"
+        android:textSize="15sp"
         android:textStyle="bold" />
 
     <!-- ML / CV Pipeline Indicator -->
@@ -53,7 +53,7 @@
         android:layout_gravity="center_vertical|start"
         android:layout_marginStart="16dp"
         android:textColor="@color/tw_bg"
-        android:textSize="12sp"
+        android:textSize="11sp"
         android:textStyle="bold"
         android:background="#44000000"
         android:paddingHorizontal="8dp"
@@ -76,14 +76,14 @@
 
     <!-- Latest ROI thumb (optional) -->
     <ImageView
-        android:layout_width="96dp"
-        android:layout_height="96dp"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
         android:layout_gravity="top|end"
         android:layout_margin="12dp"
         android:scaleType="centerCrop"
         android:background="#FFFFFFFF"
         android:elevation="2dp"
-        android:padding="4dp"
+        android:padding="3dp"
         android:visibility="gone" />
 
     <!-- Bottom panel -->
@@ -92,9 +92,9 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:paddingHorizontal="20dp"
-        android:paddingBottom="28dp"
-        android:paddingTop="16dp"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="20dp"
+        android:paddingTop="12dp"
         android:background="#B300274C"
         android:gravity="center_horizontal"
         android:animateLayoutChanges="true">
@@ -103,116 +103,211 @@
             android:id="@+id/runtimeThresholdsAuth"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
+            android:layout_marginBottom="6dp"
             android:textColor="@color/tw_bg"
-            android:textSize="12sp"
-            android:textStyle="bold"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
             android:text="match=0.80 | yolo=0.45" />
 
-        <!-- Row: pattern selector -->
+        <!-- Action row containing either Pattern Selector (Normal) OR Tag Autocomplete (Experiment) -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp">
+
+            <!-- NORMAL MODE: Pattern Spinner -->
+            <LinearLayout
+                android:id="@+id/normalPatternSelectorView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pattern:"
+                    android:textColor="@color/tw_bg"
+                    android:textSize="14sp"
+                    android:layout_marginEnd="8dp" />
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <Spinner
+                        android:id="@+id/patternSpinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="44dp"
+                        android:popupBackground="@color/tw_bg"
+                        android:paddingVertical="4dp" />
+                    <TextView
+                        android:id="@+id/slotStatusTextAuth"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginBottom="2dp"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- EXPERIMENT MODE: Tag Autocomplete -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/experimentTagLayoutAuth"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Select Pattern Tag"
+                android:textColorHint="@color/tw_bg"
+                app:hintTextColor="@color/tw_bg"
+                app:boxStrokeColor="@color/tw_bg"
+                android:visibility="gone">
+                <AutoCompleteTextView
+                    android:id="@+id/inputExperimentTagAuth"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/tw_bg"
+                    android:inputType="textNoSuggestions"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </FrameLayout>
+
+        <!-- Condition Controls (Only for Experiment Mode) -->
         <LinearLayout
+            android:id="@+id/experimentConditionsGroupAuth"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Pattern:"
-                android:textColor="@color/tw_bg"
-                android:textSize="16sp"
-                android:layout_marginEnd="12dp" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <Spinner
-                    android:id="@+id/patternSpinner"
+            android:visibility="gone"
+            android:layout_marginBottom="8dp"
+            android:baselineAligned="false">
+            <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Illumination" android:textColor="@color/tw_bg" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleIlluminationAuth"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:popupBackground="@color/tw_bg"
-                    android:paddingVertical="4dp" />
-
-                <TextView
-                    android:id="@+id/slotStatusTextAuth"
-                    android:layout_width="wrap_content"
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
+                    <Button android:id="@+id/btnCondBrightAuth" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Bright" style="@style/Widget.MaterialComponents.Button.OutlinedButton" app:strokeColor="@color/toggle_stroke_color" android:textColor="@color/toggle_text_color" app:backgroundTint="@color/toggle_bg_color"/>
+                    <Button android:id="@+id/btnCondDimAuth" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Dim" style="@style/Widget.MaterialComponents.Button.OutlinedButton" app:strokeColor="@color/toggle_stroke_color" android:textColor="@color/toggle_text_color" app:backgroundTint="@color/toggle_bg_color"/>
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+            </LinearLayout>
+            <View android:layout_width="16dp" android:layout_height="match_parent" />
+            <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Distance" android:textColor="@color/tw_bg" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleDistanceAuth"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginBottom="4dp"
-                    android:textColor="#FFFFFF"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
+                    <Button android:id="@+id/btnCondNearAuth" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Near" style="@style/Widget.MaterialComponents.Button.OutlinedButton" app:strokeColor="@color/toggle_stroke_color" android:textColor="@color/toggle_text_color" app:backgroundTint="@color/toggle_bg_color"/>
+                    <Button android:id="@+id/btnCondFarAuth" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Far" style="@style/Widget.MaterialComponents.Button.OutlinedButton" app:strokeColor="@color/toggle_stroke_color" android:textColor="@color/toggle_text_color" app:backgroundTint="@color/toggle_bg_color"/>
+                </com.google.android.material.button.MaterialButtonToggleGroup>
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Night mode toggle -->
+        <!-- Night mode toggle (Normal Mode Only) -->
         <LinearLayout
+            android:id="@+id/normalNightModeGroupAuth"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp">
-
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp">
             <CheckBox
                 android:id="@+id/flashCheck"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minHeight="48dp"
+                android:minHeight="40dp"
                 android:text="Night mode"
                 android:textColor="@color/tw_bg"
-                android:textSize="18sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
+        
+        <!-- Trial Counter (Experiment Mode Only) -->
+        <TextView
+            android:id="@+id/experimentTrialCounter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginVertical="4dp"
+            android:text="Trial 1/3"
+            android:textColor="@color/umich_maize"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <!-- Action slot: button OR progress -->
         <FrameLayout
+            android:id="@+id/actionSlotAuth"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp">
+            android:layout_marginTop="8dp">
 
             <Button
                 android:id="@+id/btnCaptureAuth"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="44dp"
                 android:text="Authenticate"
                 android:textAllCaps="false"
-                android:textSize="16sp"
+                android:textSize="15sp"
                 app:backgroundTint="@color/umich_maize"
                 android:textColor="@color/umich_blue"
                 android:textStyle="bold" />
 
             <LinearLayout
+                android:id="@+id/progressLayoutAuth"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:visibility="gone">
-
-                <ProgressBar
-                    android:id="@+id/progressBarAuth"
-                    style="?android:attr/progressBarStyleHorizontal"
+                
+                <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="8dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:indeterminate="false"
-                    android:progressDrawable="@drawable/progress_maize" />
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    
+                    <ProgressBar
+                        android:id="@+id/progressBarAuth"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="0dp"
+                        android:layout_height="8dp"
+                        android:layout_weight="1"
+                        android:max="100"
+                        android:progress="0"
+                        android:indeterminate="false"
+                        android:progressDrawable="@drawable/progress_maize" />
+
+                    <!-- Experiment Mode Cancel Button -->
+                    <Button
+                        android:id="@+id/btnCancelAuth"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="✕ Cancel"
+                        android:textColor="#FF5252"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:minWidth="80dp"
+                        android:visibility="gone" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/progressLineAuth"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center_horizontal"
-                    android:layout_marginTop="10dp"
+                    android:layout_marginTop="8dp"
                     android:text="Authenticating…"
                     android:textColor="@color/tw_bg"
-                    android:textSize="14sp" />
+                    android:textSize="13sp" />
             </LinearLayout>
         </FrameLayout>
 
@@ -223,7 +318,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/bg_result_card"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:visibility="gone"
             android:animateLayoutChanges="true">
 
@@ -234,7 +329,7 @@
                 android:text="Verdict: —"
                 android:textStyle="bold"
                 android:textColor="@color/tw_bg"
-                android:textSize="22sp" />
+                android:textSize="18sp" />
 
             <TextView
                 android:id="@+id/confidenceText"
@@ -242,7 +337,7 @@
                 android:layout_height="wrap_content"
                 android:text="Confidence: —"
                 android:textColor="@color/tw_bg"
-                android:textSize="18sp" />
+                android:textSize="15sp" />
 
             <TextView
                 android:id="@+id/stagesText"
@@ -250,7 +345,76 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:textColor="#BBBBBB"
-                android:textSize="14sp" />
+                android:textSize="11sp" />
+                
+            <!-- Post-Auth Actions (Experiment Mode) -->
+            <LinearLayout
+                android:id="@+id/experimentAuthActionsGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                android:layout_marginTop="12dp">
+                
+                <Button
+                    android:id="@+id/btnRetakeAuth"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Retake Trial"
+                    app:strokeColor="@color/tw_bg"
+                    android:textColor="@color/tw_bg" />
+                    
+                <View android:layout_width="12dp" android:layout_height="match_parent" />
+                
+                <Button
+                    android:id="@+id/btnNextTrialAuth"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Next Trial"
+                    app:backgroundTint="@color/tw_bg"
+                    android:textColor="@color/umich_blue" />
+            </LinearLayout>
+        </LinearLayout>
+        
+        <!-- Final Session Complete Screen (Experiment Mode Only) -->
+        <LinearLayout
+            android:id="@+id/sessionCompleteCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_result_card"
+            android:layout_marginTop="12dp"
+            android:visibility="gone"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✓ Session Complete"
+                android:textColor="#4CAF50"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3/3 trials recorded successfully."
+                android:textColor="@color/tw_bg"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <Button
+                android:id="@+id/btnDoneAuth"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:text="Next User (Return to Registration)"
+                android:textAllCaps="false"
+                app:backgroundTint="@color/umich_blue"
+                android:textColor="@color/tw_bg" />
         </LinearLayout>
 
         <!-- Auth History -->
@@ -258,7 +422,7 @@
             android:id="@+id/historyContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="16dp"
             android:orientation="vertical"
             android:visibility="gone">
 
@@ -268,16 +432,16 @@
                 android:text="Recent Authentications"
                 android:textColor="@color/tw_bg"
                 android:textStyle="bold"
-                android:textSize="16sp"
-                android:layout_marginBottom="8dp" />
+                android:textSize="14sp"
+                android:layout_marginBottom="6dp" />
 
             <TextView
                 android:id="@+id/historyText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="#CCCCCC"
-                android:textSize="14sp"
-                android:lineSpacingExtra="4dp" />
+                android:textSize="12sp"
+                android:lineSpacingExtra="3dp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

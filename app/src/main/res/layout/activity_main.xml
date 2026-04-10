@@ -89,12 +89,43 @@
             android:text="⚙ Developer Settings"
             android:textColor="#888888" />
 
+        <!-- Experiment Mode Indicator -->
+        <LinearLayout
+            android:id="@+id/experimentBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#1A237E"
+            android:paddingVertical="10dp"
+            android:paddingHorizontal="16dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginHorizontal="24dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🔬 Experiment Mode Active"
+                android:textColor="#FFEB3B"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/experimentConditionsSummary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp" />
+        </LinearLayout>
+
         <!-- Slots overview -->
         <TextView
             android:id="@+id/slotsStatusText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="36dp"
+            android:layout_marginTop="16dp"
             android:paddingHorizontal="24dp"
             android:textColor="#555555"
             android:textSize="14sp"

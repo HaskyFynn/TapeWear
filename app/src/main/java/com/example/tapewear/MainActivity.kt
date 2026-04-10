@@ -1,11 +1,16 @@
-﻿package com.example.tapewear
+package com.example.tapewear
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +18,13 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
+
+    private val cameraPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) Log.i("TapeWear_Main", "Camera permission granted")
+        else Log.w("TapeWear_Main", "Camera permission denied by user")
+    }
 
     private fun modelThreads(): Int {
         val fp = android.os.Build.FINGERPRINT.lowercase(Locale.US)
@@ -28,7 +40,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         // Load custom thresholds from SharedPreferences
         SettingsStore.load(this)
 
@@ -41,6 +53,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             appBar.title = "TAWRing"
             appBar.navigationIcon = null
+        }
+
+        // --- Pre-request camera permission so Register/Authenticate don't reload ---
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            cameraPermLauncher.launch(Manifest.permission.CAMERA)
         }
 
         // --- Global YOLO detector init (once, in background) ---
@@ -96,22 +114,52 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         SettingsStore.load(this)
         updateSlotsStatus()
+        updateExperimentBanner()
+    }
+
+    private fun updateExperimentBanner() {
+        val banner = findViewById<View>(R.id.experimentBanner) ?: return
+        val summary = findViewById<TextView>(R.id.experimentConditionsSummary) ?: return
+        
+        if (AuthConfig.EXPERIMENT_MODE) {
+            banner.visibility = View.VISIBLE
+            val metadata = ExperimentStore.getStudyMetadata(this)
+            val report = ExperimentStore.buildCoverageReport(this)
+            val participantLine = if (metadata.participantId.isNotBlank()) {
+                "Session: ${metadata.sessionId.ifBlank { "Unsaved" }}"
+            } else {
+                "Study metadata incomplete"
+            }
+            val nextLine = report.nextAction() ?: "Awaiting activity"
+            summary.text = "$participantLine\n$nextLine"
+        } else {
+            banner.visibility = View.GONE
+        }
     }
 
     private fun updateSlotsStatus() {
         val tv = findViewById<TextView>(R.id.slotsStatusText) ?: return
         
-        val enrolled = mutableListOf<Int>()
-        for (i in 1..50) {
-            if (ModelManager.hasModel(this, i)) {
-                enrolled.add(i)
+        if (AuthConfig.EXPERIMENT_MODE) {
+            val report = ExperimentStore.buildCoverageReport(this)
+            if (report.sessionTags.isEmpty()) {
+                tv.text = "No tags registered yet."
+            } else {
+                tv.text = "Registered Tags: " + report.sessionTags.joinToString(", ")
             }
-        }
-        
-        if (enrolled.isEmpty()) {
-            tv.text = "No patterns enrolled yet."
         } else {
-            tv.text = "Enrolled: " + enrolled.joinToString(", ") { "Slot $it" }
+            val enrolled = mutableListOf<Int>()
+            for (i in 1..50) {
+                if (ModelManager.hasModel(this, i)) {
+                    enrolled.add(i)
+                }
+            }
+            
+            if (enrolled.isEmpty()) {
+                tv.text = "No patterns enrolled yet."
+            } else {
+                tv.text = "Enrolled: " + enrolled.joinToString(", ") { "Slot $it" }
+            }
         }
     }
 
@@ -120,4 +168,3 @@ class MainActivity : AppCompatActivity() {
         Log.i("TapeWear_Main", "MainActivity onDestroy()")
     }
 }
-

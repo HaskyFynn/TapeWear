@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
@@ -14,6 +15,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.params.StreamConfigurationMap
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -39,10 +41,12 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.graphics.scale
+import androidx.core.widget.doAfterTextChanged
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.roundToInt
 
 class RegisterActivity : AppCompatActivity() {
 
@@ -84,7 +88,6 @@ class RegisterActivity : AppCompatActivity() {
 
     // Session dirs
     private lateinit var sessionDir: File
-    private lateinit var cropsDir: File
 
     // Camera2
     private val cameraManager by lazy { getSystemService(CAMERA_SERVICE) as CameraManager }
@@ -92,8 +95,10 @@ class RegisterActivity : AppCompatActivity() {
     private var session: CameraCaptureSession? = null
     private var cameraId: String = "0"
     private var previewSize = Size(640, 480)
+    private var sensorOrientation: Int = 90
     private val mainHandler = Handler(Looper.getMainLooper())
     private var hasFlash = false
+    private val torchTelemetry by lazy { TorchTelemetryTracker(cameraManager) }
     private var reqBuilder: CaptureRequest.Builder? = null
 
     // Background thread for processing
@@ -132,6 +137,9 @@ class RegisterActivity : AppCompatActivity() {
     private val intentMissesToDeactivate = 3
     private var demoLoopEnabled = false
     private var demoLoopRunnable: Runnable? = null
+    private var renderedExperimentMode = false
+    private var interactionReadyAtMs: Long = 0L
+    private var suppressExperimentConditionSignals = false
 
     // Registration timing
     private var regSessionStartMs: Long = 0L
@@ -144,7 +152,18 @@ class RegisterActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SettingsStore.load(this)
+        renderedExperimentMode = AuthConfig.EXPERIMENT_MODE
         setContentView(R.layout.activity_register)
+
+        // Home button on toolbar
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.appbarInc)?.let { toolbar ->
+            toolbar.setNavigationIcon(android.R.drawable.ic_menu_revert)
+            toolbar.setNavigationOnClickListener {
+                val intent = Intent(this, MainActivity::class.java)
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                startActivity(intent)
+            }
+        }
 
         // Bind
         textureView   = findViewById(R.id.textureView)
@@ -170,6 +189,92 @@ class RegisterActivity : AppCompatActivity() {
         modeIndicator  = findViewById(R.id.modeIndicator)
         refreshRuntimeConfigUi()
         stagesTextReg.visibility = View.GONE
+
+        // Experiment views
+        val normalSlotPickerView = findViewById<View>(R.id.normalSlotPickerView)
+        val normalNightModeGroup = findViewById<View>(R.id.normalNightModeGroup)
+        val experimentTagLayout = findViewById<View>(R.id.experimentTagLayout)
+        val inputExperimentTag = findViewById<TextView>(R.id.inputExperimentTag)
+        val experimentConditionsGroup = findViewById<View>(R.id.experimentConditionsGroup)
+        val toggleIllumination = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleIllumination)
+        val toggleDistance = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleDistance)
+        val btnCancelReg = findViewById<Button>(R.id.btnCancelReg)
+        val experimentCompletionGroup = findViewById<View>(R.id.experimentCompletionGroup)
+        val btnProceedToAuth = findViewById<Button>(R.id.btnProceedToAuth)
+        val btnRetakeReg = findViewById<Button>(R.id.btnRetakeReg)
+
+        if (AuthConfig.EXPERIMENT_MODE) {
+            normalSlotPickerView.visibility = View.GONE
+            normalNightModeGroup.visibility = View.GONE
+            experimentTagLayout.visibility = View.VISIBLE
+            experimentConditionsGroup.visibility = View.VISIBLE
+            inputExperimentTag.doAfterTextChanged {
+                updateCaptureReadyState()
+            }
+            
+            // Set defaults matches config
+            if (AuthConfig.EXPERIMENT_ILLUMINATION == "dim") {
+                toggleIllumination.check(R.id.btnCondDim)
+            } else {
+                toggleIllumination.check(R.id.btnCondBright)
+            }
+            if (AuthConfig.EXPERIMENT_DISTANCE == "far") {
+                toggleDistance.check(R.id.btnCondFar)
+            } else {
+                toggleDistance.check(R.id.btnCondNear)
+            }
+
+            toggleIllumination.addOnButtonCheckedListener { _, _, isChecked ->
+                if (isChecked && !suppressExperimentConditionSignals) {
+                    applyExperimentConditionSelection(showCooldown = true)
+                }
+            }
+            toggleDistance.addOnButtonCheckedListener { _, _, isChecked ->
+                if (isChecked && !suppressExperimentConditionSignals) {
+                    applyExperimentConditionSelection(showCooldown = true)
+                }
+            }
+            
+            btnProceedToAuth.setOnClickListener {
+                startActivity(Intent(this, AuthenticateActivity::class.java))
+            }
+            
+            btnRetakeReg.setOnClickListener {
+                // Return to clean state
+                experimentCompletionGroup.visibility = View.GONE
+                inputExperimentTag.isEnabled = true
+                experimentConditionsGroup.visibility = View.VISIBLE
+                btnCapture.visibility = View.VISIBLE
+                progressSlot.visibility = View.GONE
+                topMessage.text = "Retake Registration"
+                overlayView.statusText = getString(R.string.align_in_box)
+                updateCaptureReadyState()
+            }
+            
+            btnCancelReg.setOnClickListener {
+                if (regRunning.get()) {
+                    logExperimentRegistrationStatus(
+                        status = "cancelled",
+                        failureReason = "user_cancelled",
+                        tagNameOverride = ExperimentStore.getCurrentTagName(this)
+                    )
+                }
+                ExperimentStore.resetSession(this)
+                mainHandler.post {
+                    regRunning.set(false)
+                    progressSlot.visibility = View.GONE
+                    btnCapture.visibility = View.VISIBLE
+                    inputExperimentTag.text = null
+                    inputExperimentTag.isEnabled = true
+                    experimentConditionsGroup.visibility = View.VISIBLE
+                    topMessage.text = "Ready"
+                    overlayView.statusText = getString(R.string.align_in_box)
+                    lockAeAwb(false)
+                    if (!demoMode) setTorch(false)
+                    updateCaptureReadyState()
+                }
+            }
+        }
 
         nightMode = intent?.getBooleanExtra(EXTRA_NIGHT_MODE, false) == true
         flashCheckRegister.isChecked = nightMode
@@ -208,10 +313,9 @@ class RegisterActivity : AppCompatActivity() {
 
         // Dirs
         sessionDir = File(cacheDir, "session_${System.currentTimeMillis()}").apply { mkdirs() }
-        cropsDir   = File(sessionDir, "crops").apply { mkdirs() }
 
         btnCapture.setOnClickListener {
-            nightMode = flashCheckRegister.isChecked
+            // Replaced logic inside startRegistrationCapture to handle setting night mode and validation.
             boostLiveDetectionWindow()
             startRegistrationCapture()
         }
@@ -247,27 +351,76 @@ class RegisterActivity : AppCompatActivity() {
 
             val chars = cameraManager.getCameraCharacteristics(cameraId)
             hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            torchTelemetry.configure(cameraId, hasFlash)
+
+            // Choose optimal preview size from camera capabilities
+            val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            if (map != null) {
+                val outputSizes = map.getOutputSizes(SurfaceTexture::class.java)
+                if (outputSizes != null && outputSizes.isNotEmpty()) {
+                    previewSize = chooseOptimalSize(outputSizes, textureView.width, textureView.height)
+                    Log.d("TapeWear_Reg", "Selected preview size: ${previewSize.width}x${previewSize.height}")
+                }
+            }
 
             textureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) = startWhenReady()
-                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {}
+                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                    configureTransform(w, h)
+                    startWhenReady()
+                }
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) {
+                    configureTransform(w, h)
+                }
                 override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
                     maybeRunLiveDetectionFromPreview()
                 }
             }
+        } else {
+            torchTelemetry.configure(cameraId = null, flashAvailable = false)
         }
     }
 
     override fun onResume() {
         super.onResume()
         SettingsStore.load(this)
+        if (renderedExperimentMode != AuthConfig.EXPERIMENT_MODE) {
+            recreate()
+            return
+        }
         ensureModelsInitializedIfNeeded()
         refreshRuntimeConfigUi()
+        if (!demoMode) {
+            torchTelemetry.register()
+        }
         demoUiActive = true
         liveDetectionEnabledAtMs = SystemClock.elapsedRealtime() + liveDetectStartDelayMs
         lastLiveDetectMs = 0L
         resetLiveDetectionPacing()
+
+        // Reset experiment UI to fresh state when returning from auth
+        if (AuthConfig.EXPERIMENT_MODE) {
+            syncExperimentConditionUiFromConfig()
+            applyExperimentConditionSelection(showCooldown = false)
+            val inputTag = findViewById<android.widget.EditText>(R.id.inputExperimentTag)
+            val conditionsGroup = findViewById<View>(R.id.experimentConditionsGroup)
+            val completionGroup = findViewById<View>(R.id.experimentCompletionGroup)
+
+            inputTag?.setText("")
+            inputTag?.isEnabled = true
+            conditionsGroup?.visibility = View.VISIBLE
+            completionGroup?.visibility = View.GONE
+            findViewById<View>(R.id.btnCancelReg)?.visibility = View.GONE
+            btnCapture.visibility = View.VISIBLE
+            progressSlot.visibility = View.GONE
+            stagesTextReg.visibility = View.GONE
+            topMessage.text = "Ready"
+            overlayView.statusText = getString(R.string.align_in_box)
+            regRunning.set(false)
+            beginInteractionCooldown("Applying updated settings... Please wait.", 300L)
+            updateCaptureReadyState()
+        }
 
         if (demoMode) {
             try {
@@ -285,8 +438,7 @@ class RegisterActivity : AppCompatActivity() {
         backgroundThread = HandlerThread("ImageProcessor").apply { start() }
         backgroundHandler = Handler(backgroundThread!!.looper)
 
-        if (!demoMode && textureView.
-        isAvailable) startWhenReady()
+        if (!demoMode && textureView.isAvailable) startWhenReady()
 
         if (demoMode) {
             primeDemoFrameAsync()
@@ -317,6 +469,7 @@ class RegisterActivity : AppCompatActivity() {
             setTorch(false)
             session?.close(); session = null
             cameraDevice?.close(); cameraDevice = null
+            torchTelemetry.unregister()
         }
 
         shutdownBackgroundThreadAsync()
@@ -402,13 +555,16 @@ class RegisterActivity : AppCompatActivity() {
 
     // --- Header ---
     private fun refreshHeader() {
-        topMessage.text = if (nightMode) {
-            getString(R.string.register_night_torch)
-        } else {
-            getString(R.string.register_day)
+        val torchEnabledForDim = !AuthConfig.EXPERIMENT_MODE || AuthConfig.EXPERIMENT_FLASH_ENABLED
+        topMessage.text = when {
+            nightMode && AuthConfig.EXPERIMENT_MODE && !AuthConfig.EXPERIMENT_FLASH_ENABLED ->
+                "Night registration • Flash OFF"
+            nightMode -> getString(R.string.register_night_torch)
+            else -> getString(R.string.register_day)
         }
-        flashHint.visibility = if (!demoMode && nightMode) View.VISIBLE else View.GONE
-        flashHint.text = if (nightMode && !demoMode) getString(R.string.torch_on) else ""
+        val showTorchHint = !demoMode && nightMode && torchEnabledForDim
+        flashHint.visibility = if (showTorchHint) View.VISIBLE else View.GONE
+        flashHint.text = if (showTorchHint) getString(R.string.torch_on) else ""
         Log.d("TapeWear_Reg", "Header refreshed: nightMode=$nightMode, demoMode=$demoMode")
     }
 
@@ -424,9 +580,115 @@ class RegisterActivity : AppCompatActivity() {
             AuthConfig.REG_BURST_MS,
             detName
         )
-        if (::btnCapture.isInitialized && !regRunning.get()) {
-            btnCapture.isEnabled = isYoloReady()
+        updateCaptureReadyState()
+    }
+
+    private fun syncExperimentConditionUiFromConfig() {
+        suppressExperimentConditionSignals = true
+        try {
+            findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleIllumination)
+                ?.check(if (AuthConfig.EXPERIMENT_ILLUMINATION == "dim") R.id.btnCondDim else R.id.btnCondBright)
+            findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleDistance)
+                ?.check(if (AuthConfig.EXPERIMENT_DISTANCE == "far") R.id.btnCondFar else R.id.btnCondNear)
+        } finally {
+            suppressExperimentConditionSignals = false
         }
+    }
+
+    private fun selectedExperimentIllumination(): String {
+        val toggle = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleIllumination)
+        return if (toggle?.checkedButtonId == R.id.btnCondDim) "dim" else "bright"
+    }
+
+    private fun selectedExperimentDistance(): String {
+        val toggle = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleDistance)
+        return if (toggle?.checkedButtonId == R.id.btnCondFar) "far" else "near"
+    }
+
+    private fun isInteractionCoolingDown(): Boolean =
+        SystemClock.elapsedRealtime() < interactionReadyAtMs
+
+    private fun beginInteractionCooldown(message: String, durationMs: Long = 350L) {
+        interactionReadyAtMs = SystemClock.elapsedRealtime() + durationMs
+        if (!regRunning.get()) {
+            overlayView.statusText = message
+            topMessage.text = message
+        }
+        updateCaptureReadyState()
+        mainHandler.postDelayed({
+            if (!regRunning.get() && !isInteractionCoolingDown()) {
+                topMessage.text = "Ready"
+                overlayView.statusText = getString(R.string.align_in_box)
+                updateCaptureReadyState()
+            }
+        }, durationMs)
+    }
+
+    private fun applyExperimentConditionSelection(showCooldown: Boolean) {
+        val illumination = selectedExperimentIllumination()
+        val distance = selectedExperimentDistance()
+        val changed =
+            AuthConfig.EXPERIMENT_ILLUMINATION != illumination ||
+                AuthConfig.EXPERIMENT_DISTANCE != distance
+        AuthConfig.EXPERIMENT_ILLUMINATION = illumination
+        AuthConfig.EXPERIMENT_DISTANCE = distance
+        nightMode = illumination == "dim"
+        if (changed) {
+            SettingsStore.save(this)
+        }
+        refreshHeader()
+        refreshRuntimeConfigUi()
+        if (showCooldown) {
+            beginInteractionCooldown("Applying condition... Please wait.", 300L)
+        }
+    }
+
+    private fun experimentTagInput(): String {
+        val input = findViewById<TextView>(R.id.inputExperimentTag) ?: return ""
+        return ExperimentStore.normalizeTag(input.text?.toString().orEmpty())
+    }
+
+    private fun updateCaptureReadyState() {
+        if (!::btnCapture.isInitialized || regRunning.get()) return
+        btnCapture.isEnabled = if (AuthConfig.EXPERIMENT_MODE) {
+            !isInteractionCoolingDown() && isYoloReady() && experimentTagInput().isNotEmpty()
+        } else {
+            !isInteractionCoolingDown() && isYoloReady()
+        }
+    }
+
+    private fun ensureExperimentStudyReady(): Boolean {
+        if (!AuthConfig.EXPERIMENT_MODE) return true
+        val error = ExperimentStore.studySetupError(this) ?: return true
+        toast(error)
+        overlayView.statusText = "Set study metadata in Settings"
+        return false
+    }
+
+    private fun logExperimentRegistrationStatus(
+        status: String,
+        failureReason: String,
+        keptSamples: Int = 0,
+        usedForEnroll: Int = 0,
+        tagNameOverride: String? = null
+    ) {
+        if (!AuthConfig.EXPERIMENT_MODE) return
+        val now = SystemClock.elapsedRealtime()
+        val totalMs = if (regSessionStartMs > 0L) now - regSessionStartMs else 0L
+        MetricsLogger.logRegistration(
+            ctx = this,
+            slot = currentSlot,
+            regTotalMs = totalMs,
+            keptSamples = keptSamples,
+            usedForEnroll = usedForEnroll,
+            nightMode = nightMode,
+            demoMode = demoMode,
+            overhead = regOverhead,
+            flashTelemetry = torchTelemetry.snapshot(),
+            trialStatus = status,
+            failureReason = failureReason,
+            tagNameOverride = tagNameOverride
+        )
     }
 
     private fun isYoloReady(): Boolean = ModelManager.detector is ModelManager.TFLiteYoloDetector
@@ -522,9 +784,30 @@ class RegisterActivity : AppCompatActivity() {
         }
 
         if (regRunning.get()) return
+
+        // Hands-free auto-trigger: start registration when enough consecutive detections
+        if (AuthConfig.HANDS_FREE_ENABLED
+            && seenInGuide
+            && intentHitStreak >= AuthConfig.HANDS_FREE_CONSECUTIVE_HITS
+            && !regRunning.get()
+            && isYoloReady()
+            && (!AuthConfig.EXPERIMENT_MODE || experimentTagInput().isNotEmpty())
+        ) {
+            Log.d("TapeWear_Reg", "Hands-free: auto-triggering registration (streak=$intentHitStreak)")
+            mainHandler.post {
+                if (!regRunning.get()) {
+                    nightMode = flashCheckRegister.isChecked
+                    boostLiveDetectionWindow()
+                    startRegistrationCapture()
+                }
+            }
+            return
+        }
+
         mainHandler.post {
             if (regRunning.get()) return@post
             overlayView.statusText = when {
+                AuthConfig.HANDS_FREE_ENABLED && seenInGuide -> "Pattern detected ($intentHitStreak/${AuthConfig.HANDS_FREE_CONSECUTIVE_HITS})…"
                 seenInGuide -> "Pattern seen in guide. Tap Capture"
                 intentActive -> "Hold pattern in guide"
                 else -> getString(R.string.align_in_box)
@@ -544,6 +827,7 @@ class RegisterActivity : AppCompatActivity() {
 
     // --- Registration flow ---
     private fun startRegistrationCapture() {
+        torchTelemetry.resetAttempt()
         if (regRunning.getAndSet(true)) return
         if (!isYoloReady()) {
             regRunning.set(false)
@@ -551,6 +835,77 @@ class RegisterActivity : AppCompatActivity() {
             topMessage.text = "YOLO model not loaded"
             toast("YOLO detector is required")
             return
+        }
+
+        if (!ensureExperimentStudyReady()) {
+            regRunning.set(false)
+            updateCaptureReadyState()
+            return
+        }
+
+        val inputExperimentTag = findViewById<TextView>(R.id.inputExperimentTag)
+        val experimentConditionsGroup = findViewById<View>(R.id.experimentConditionsGroup)
+        var tagName = ""
+
+        if (AuthConfig.EXPERIMENT_MODE) {
+            tagName = experimentTagInput()
+            if (tagName.isEmpty()) {
+                regRunning.set(false)
+                logExperimentRegistrationStatus(
+                    status = "rejected",
+                    failureReason = "missing_tag_name"
+                )
+                toast("Please enter a Pattern Tag Name")
+                inputExperimentTag.requestFocus()
+                updateCaptureReadyState()
+                return
+            }
+            // Check uniqueness only if it's the very first time (it hasn't already been mapped in this session)
+            if (ExperimentStore.getCurrentTagName(this) != tagName && ExperimentStore.isTagRegistered(this, tagName)) {
+                regRunning.set(false)
+                logExperimentRegistrationStatus(
+                    status = "rejected",
+                    failureReason = "duplicate_tag_name",
+                    tagNameOverride = tagName
+                )
+                toast("Tag '$tagName' is already registered. Use a unique name.")
+                inputExperimentTag.requestFocus()
+                updateCaptureReadyState()
+                return
+            }
+            
+            val toggleIllumination = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleIllumination)
+            val toggleDistance = findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(R.id.toggleDistance)
+            
+            AuthConfig.EXPERIMENT_ILLUMINATION = if (toggleIllumination.checkedButtonId == R.id.btnCondDim) "dim" else "bright"
+            AuthConfig.EXPERIMENT_DISTANCE = if (toggleDistance.checkedButtonId == R.id.btnCondFar) "far" else "near"
+            SettingsStore.save(this) // Persist condition choice
+            // Dim mode is our "night mode" flag for camera logic
+            nightMode = AuthConfig.EXPERIMENT_ILLUMINATION == "dim"
+            
+            ExperimentStore.setCurrentTagName(this, tagName)
+            try {
+                currentSlot = ExperimentStore.getSlotForTag(this, tagName)
+            } catch (e: IllegalStateException) {
+                regRunning.set(false)
+                logExperimentRegistrationStatus(
+                    status = "rejected",
+                    failureReason = "slot_limit_reached",
+                    tagNameOverride = tagName
+                )
+                toast(e.message ?: "No experiment slots remaining.")
+                updateCaptureReadyState()
+                return
+            }
+            ModelManager.setActiveSlot(currentSlot)
+            
+            // Clean UI
+            inputExperimentTag.isEnabled = false
+            experimentConditionsGroup.visibility = View.GONE
+            findViewById<Button>(R.id.btnCancelReg).visibility = View.VISIBLE
+        } else {
+            nightMode = flashCheckRegister.isChecked
+            findViewById<Button>(R.id.btnCancelReg).visibility = View.GONE
         }
 
         // regSessionStartMs initialized safely in background thread
@@ -564,6 +919,7 @@ class RegisterActivity : AppCompatActivity() {
         btnCapture.visibility = View.GONE
         progressSlot.visibility = View.VISIBLE
         btnAuth.visibility = View.GONE
+        findViewById<View>(R.id.experimentCompletionGroup)?.visibility = View.GONE
         progressBar.isIndeterminate = false
         progressBar.progress = 0
         progressBar.visibility = View.VISIBLE
@@ -574,7 +930,8 @@ class RegisterActivity : AppCompatActivity() {
         flashCheckRegister.visibility = View.GONE
         stagesTextReg.visibility = View.GONE
 
-        if (!demoMode && nightMode && hasFlash) setTorch(true)
+        val useFlash = if (AuthConfig.EXPERIMENT_MODE) nightMode && AuthConfig.EXPERIMENT_FLASH_ENABLED else nightMode
+        if (!demoMode && useFlash && hasFlash) setTorch(true)
 
 
         Log.d("TapeWear_Reg", "Starting registration capture (slot=$currentSlot, night=$nightMode)")
@@ -601,6 +958,12 @@ class RegisterActivity : AppCompatActivity() {
 
         val bg = backgroundHandler
         if (bg == null) {
+            logExperimentRegistrationStatus(
+                status = "failed",
+                failureReason = "background_thread_unavailable",
+                keptSamples = kept.size,
+                tagNameOverride = ExperimentStore.getCurrentTagName(this)
+            )
             regRunning.set(false)
             overlayView.statusText = "Processing unavailable"
             btnCapture.isEnabled = isYoloReady()
@@ -729,11 +1092,17 @@ class RegisterActivity : AppCompatActivity() {
     private fun finishRegistration(kept: List<Sample>) {
         Log.d("TapeWear_Reg", "finishRegistration: processing ${kept.size} samples for slot $currentSlot")
         lockAeAwb(false)
-        if (!demoMode && nightMode) setTorch(false)
+        if (!demoMode) setTorch(false)
 
         val targetFrames = AuthConfig.REG_TARGET_FRAMES
         if (kept.size < targetFrames) {
             Log.w("TapeWear_Reg", "Registration failed: only collected ${kept.size} / $targetFrames frames")
+            logExperimentRegistrationStatus(
+                status = "failed",
+                failureReason = "insufficient_good_frames",
+                keptSamples = kept.size,
+                tagNameOverride = ExperimentStore.getCurrentTagName(this)
+            )
             mainHandler.post {
                 kept.forEach { it.bmp.recycle() }
 
@@ -744,9 +1113,21 @@ class RegisterActivity : AppCompatActivity() {
                 progressLine.visibility = View.GONE
                 stagesTextReg.visibility = View.GONE
 
-                btnAuth.visibility = View.VISIBLE
-                btnCapture.visibility = View.VISIBLE
-                flashCheckRegister.visibility = View.VISIBLE
+                if (AuthConfig.EXPERIMENT_MODE) {
+                    // Failed reg: release the reserved tag so it can be re-used
+                    val failedTag = ExperimentStore.getCurrentTagName(this@RegisterActivity)
+                    if (failedTag != null) {
+                        ExperimentStore.releaseUnconfirmedTag(this@RegisterActivity, failedTag)
+                    }
+                    // Show completion group with only Retake visible (no Proceed)
+                    findViewById<View>(R.id.experimentCompletionGroup).visibility = View.VISIBLE
+                    findViewById<Button>(R.id.btnProceedToAuth).visibility = View.GONE
+                } else {
+                    btnAuth.visibility = View.VISIBLE
+                    btnCapture.visibility = View.VISIBLE
+                    flashCheckRegister.visibility = View.VISIBLE
+                }
+                
                 btnCapture.isEnabled = isYoloReady()
                 resetLiveDetectionPacing()
                 regRunning.set(false)
@@ -757,6 +1138,12 @@ class RegisterActivity : AppCompatActivity() {
         // Run heavy work on the processing thread so UI scheduling does not inflate core latency.
         val bg = backgroundHandler
         if (bg == null) {
+            logExperimentRegistrationStatus(
+                status = "failed",
+                failureReason = "background_thread_unavailable",
+                keptSamples = kept.size,
+                tagNameOverride = ExperimentStore.getCurrentTagName(this)
+            )
             mainHandler.post {
                 kept.forEach { it.bmp.recycle() }
                 overlayView.statusText = "Processing unavailable"
@@ -804,21 +1191,7 @@ class RegisterActivity : AppCompatActivity() {
                 Log.e("TapeWear_Reg", "Enrollment failed: ${e.message}", e)
             }
 
-            // [LATENCY FIX] Disabled raw bitmap dumps to flash storage
-            // val best = kept.sortedByDescending { it.blur }.take(48)
-            // val toSave = if (best.size >= 32) best else kept
-            // toSave.forEachIndexed { idx, s ->
-            //     try {
-            //         val f = File(cropsDir, "reg_${currentSlot}_${idx}_${s.ts}.jpg")
-            //         FileOutputStream(f).use { out ->
-            //             s.bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
-            //         }
-            //         saved++
-            //     } catch (e: Exception) {
-            //         Log.w("TapeWear_Reg", "Failed to save one crop: ${e.message}")
-            //     }
-            // }
-            // Log.d("TapeWear_Reg", "Saved $saved out of ${kept.size} crops for analysis.")
+            // Raw registration crop dumps stay disabled to avoid extra I/O during capture.
 
             // Metrics
             val now = SystemClock.elapsedRealtime()
@@ -833,10 +1206,25 @@ class RegisterActivity : AppCompatActivity() {
                     usedForEnroll = usedForEnroll,
                     nightMode = nightMode,
                     demoMode = demoMode,
-                    overhead = regOverhead
+                    overhead = regOverhead,
+                    flashTelemetry = torchTelemetry.snapshot()
                 )
             } else {
-                Log.w("TapeWear_Reg", "Skipping registration metrics: enrollment did not complete.")
+                MetricsLogger.logRegistration(
+                    ctx = this,
+                    slot = currentSlot,
+                    regTotalMs = regTotalMs,
+                    keptSamples = kept.size,
+                    usedForEnroll = usedForEnroll,
+                    nightMode = nightMode,
+                    demoMode = demoMode,
+                    overhead = regOverhead,
+                    flashTelemetry = torchTelemetry.snapshot(),
+                    trialStatus = "failed",
+                    failureReason = "enrollment_not_completed",
+                    tagNameOverride = ExperimentStore.getCurrentTagName(this)
+                )
+                Log.w("TapeWear_Reg", "Registration metrics logged as failed: enrollment did not complete.")
             }
 
             // Post all UI updates back to main thread
@@ -864,12 +1252,48 @@ class RegisterActivity : AppCompatActivity() {
                     stagesTextReg.visibility = View.GONE
                 }
 
-                btnAuth.visibility = View.VISIBLE
-                btnCapture.visibility = View.VISIBLE
-                flashCheckRegister.visibility = View.VISIBLE
+                if (finalUsed > 0 && AuthConfig.EXPERIMENT_MODE) {
+                    val tagName = ExperimentStore.getCurrentTagName(this@RegisterActivity) ?: "unknown"
+                    // NOW persist the tag-to-slot mapping since enrollment succeeded
+                    ExperimentStore.confirmTagRegistration(this@RegisterActivity, tagName)
+                    val encStore = EnrollmentStore.load(this@RegisterActivity, currentSlot)
+                    if (encStore != null) {
+                        ExperimentStore.saveEnrollmentEmbeddingForCrossAuth(this@RegisterActivity, tagName, encStore.mean)
+                    }
+                } else if (finalUsed == 0 && AuthConfig.EXPERIMENT_MODE) {
+                    // Enrollment did not produce a valid model — release the reserved tag
+                    val failedTag = ExperimentStore.getCurrentTagName(this@RegisterActivity)
+                    if (failedTag != null) {
+                        ExperimentStore.releaseUnconfirmedTag(this@RegisterActivity, failedTag)
+                    }
+                }
+
+                if (AuthConfig.EXPERIMENT_MODE) {
+                    findViewById<View>(R.id.experimentCompletionGroup).visibility = View.VISIBLE
+                    findViewById<Button>(R.id.btnProceedToAuth).visibility = if (finalUsed > 0) View.VISIBLE else View.GONE
+                } else {
+                    btnAuth.visibility = View.VISIBLE
+                    btnCapture.visibility = View.VISIBLE
+                    flashCheckRegister.visibility = View.VISIBLE
+                }
                 btnCapture.isEnabled = isYoloReady()
                 resetLiveDetectionPacing()
                 regRunning.set(false)
+
+                // Provide a backup screenshot of the results
+                if (AuthConfig.EXPERIMENT_MODE) {
+                    mainHandler.postDelayed({
+                        try {
+                            val tagRaw = ExperimentStore.getCurrentTagName(this@RegisterActivity) ?: "unknown"
+                            val tag = tagRaw.replace(Regex("[^a-zA-Z0-9_]"), "")
+                            val ts = System.currentTimeMillis()
+                            val filename = "reg_${tag}_${ts}.jpg"
+                            ScreenshotUtils.takeScreenshot(this@RegisterActivity, filename)
+                        } catch(e: Exception) {
+                            Log.e("TapeWear_Reg", "Failed to init screenshot: ${e.message}")
+                        }
+                    }, 250) // Wait for UI updates to paint
+                }
             }
         }
 
@@ -897,11 +1321,7 @@ class RegisterActivity : AppCompatActivity() {
         if (now - lastLiveDetectMs < liveDetectGapMs) return
         if (!liveDetectRunning.compareAndSet(false, true)) return
 
-        val frame = try {
-            textureView.getBitmap(640, 640)
-        } catch (_: Exception) {
-            null
-        }
+        val frame = capturePreviewFrame()
 
         if (frame == null) {
             liveDetectRunning.set(false)
@@ -990,6 +1410,41 @@ class RegisterActivity : AppCompatActivity() {
         demoLoopRunnable = null
     }
 
+    private fun capturePreviewFrame(maxLongSide: Int = 960): Bitmap? {
+        val viewW = textureView.width
+        val viewH = textureView.height
+        if (viewW <= 0 || viewH <= 0) return null
+
+        val longSide = maxOf(viewW, viewH)
+        val scale = if (longSide > maxLongSide) {
+            maxLongSide.toFloat() / longSide.toFloat()
+        } else {
+            1f
+        }
+        val targetW = (viewW * scale).roundToInt().coerceAtLeast(1)
+        val targetH = (viewH * scale).roundToInt().coerceAtLeast(1)
+        val viewBitmap = try {
+            textureView.getBitmap(targetW, targetH)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+
+        val previewRect = getPreviewContentRect(viewW, viewH)
+        if (previewRect.width() <= 1f || previewRect.height() <= 1f) {
+            return viewBitmap
+        }
+
+        val sx = targetW.toFloat() / viewW.toFloat()
+        val sy = targetH.toFloat() / viewH.toFloat()
+        val left = (previewRect.left * sx).roundToInt().coerceIn(0, targetW - 1)
+        val top = (previewRect.top * sy).roundToInt().coerceIn(0, targetH - 1)
+        val width = (previewRect.width() * sx).roundToInt().coerceAtLeast(1).coerceAtMost(targetW - left)
+        val height = (previewRect.height() * sy).roundToInt().coerceAtLeast(1).coerceAtMost(targetH - top)
+        val cropped = Bitmap.createBitmap(viewBitmap, left, top, width, height)
+        viewBitmap.recycle()
+        return cropped
+    }
+
     private fun detectFrame(frame: Bitmap, updateOverlay: Boolean): FrameDetectionOutcome {
         val det = ModelManager.detector
         if (det !is ModelManager.TFLiteYoloDetector) {
@@ -1051,15 +1506,23 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun mapFrameRectToOverlay(box: RectF, frameW: Int, frameH: Int): RectF {
-        val vw = overlayView.width.coerceAtLeast(1).toFloat()
-        val vh = overlayView.height.coerceAtLeast(1).toFloat()
-        val sx = vw / frameW.toFloat()
-        val sy = vh / frameH.toFloat()
+        val previewRect = getPreviewContentRect(overlayView.width, overlayView.height)
+        val targetRect = if (previewRect.width() > 0f && previewRect.height() > 0f) {
+            previewRect
+        } else {
+            RectF(0f, 0f, overlayView.width.toFloat(), overlayView.height.toFloat())
+        }
+        val scale = minOf(
+            targetRect.width() / frameW.toFloat(),
+            targetRect.height() / frameH.toFloat()
+        )
+        val offsetX = targetRect.left + (targetRect.width() - frameW * scale) / 2f
+        val offsetY = targetRect.top + (targetRect.height() - frameH * scale) / 2f
         return RectF(
-            box.left * sx,
-            box.top * sy,
-            box.right * sx,
-            box.bottom * sy
+            box.left * scale + offsetX,
+            box.top * scale + offsetY,
+            box.right * scale + offsetX,
+            box.bottom * scale + offsetY
         )
     }
 
@@ -1067,7 +1530,9 @@ class RegisterActivity : AppCompatActivity() {
     private fun setTorch(on: Boolean) {
         if (hasFlash) try {
             cameraManager.setTorchMode(cameraId, on)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+            torchTelemetry.markCommandError()
+        }
     }
 
     private fun lockAeAwb(lock: Boolean) {
@@ -1106,11 +1571,109 @@ class RegisterActivity : AppCompatActivity() {
 
             scaledPipeline
         } else {
-            textureView.getBitmap(640, 640)
+            capturePreviewFrame()
         }
     } catch (e: Exception) {
         Log.e("TapeWear", "snapshotCurrent failed: ${e.message}")
         null
+    }
+
+    /**
+     * Choose the largest camera preview size whose width ≤ maxW
+     * that best matches the display aspect ratio, capped at 1280px.
+     */
+    private fun chooseOptimalSize(choices: Array<Size>, maxW: Int, maxH: Int): Size {
+        val safeW = if (maxW > 0) maxW else resources.displayMetrics.widthPixels
+        val safeH = if (maxH > 0) maxH else resources.displayMetrics.heightPixels
+        val targetLong = maxOf(safeW, safeH).toDouble()
+        val targetShort = minOf(safeW, safeH).coerceAtLeast(1).toDouble()
+        val targetRatio = targetLong / targetShort
+        val cap = 1280
+        val suitable = choices.filter { maxOf(it.width, it.height) <= cap }
+            .ifEmpty { choices.toList() }
+
+        return suitable
+            .sortedWith(
+                compareBy<Size> {
+                    val longSide = maxOf(it.width, it.height).toDouble()
+                    val shortSide = minOf(it.width, it.height).coerceAtLeast(1).toDouble()
+                    kotlin.math.abs((longSide / shortSide) - targetRatio)
+                }.thenByDescending { it.width.toLong() * it.height.toLong() }
+            )
+            .firstOrNull()
+            ?: choices.first()
+    }
+
+    private fun currentDisplayRotation(): Int = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        display?.rotation ?: Surface.ROTATION_0
+    } else {
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.rotation
+    }
+
+    private fun getPreviewContentRect(viewWidth: Int, viewHeight: Int): RectF {
+        if (viewWidth <= 0 || viewHeight <= 0) return RectF()
+        val rotation = currentDisplayRotation()
+        val bufferWidth: Float
+        val bufferHeight: Float
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            bufferWidth = previewSize.width.toFloat()
+            bufferHeight = previewSize.height.toFloat()
+        } else {
+            bufferWidth = previewSize.height.toFloat()
+            bufferHeight = previewSize.width.toFloat()
+        }
+        val scale = minOf(
+            viewWidth.toFloat() / bufferWidth,
+            viewHeight.toFloat() / bufferHeight
+        )
+        val scaledW = bufferWidth * scale
+        val scaledH = bufferHeight * scale
+        val left = (viewWidth - scaledW) / 2f
+        val top = (viewHeight - scaledH) / 2f
+        return RectF(left, top, left + scaledW, top + scaledH)
+    }
+
+    /**
+     * Apply a fit-center transform so the user sees the full camera frame.
+     * Extra space is letterboxed instead of cropping the sensor output.
+     */
+    private fun configureTransform(viewWidth: Int, viewHeight: Int) {
+        if (viewWidth <= 0 || viewHeight <= 0) return
+        val matrix = Matrix()
+        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        val bufferRect = RectF(0f, 0f, previewSize.height.toFloat(), previewSize.width.toFloat())
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
+
+        // Rotate the buffer rect to match the display orientation
+        val rotation = currentDisplayRotation()
+        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.CENTER)
+            val scale = minOf(
+                viewHeight.toFloat() / previewSize.height,
+                viewWidth.toFloat() / previewSize.width
+            )
+            matrix.postScale(scale, scale, centerX, centerY)
+            matrix.postRotate((90f * (rotation - 2)), centerX, centerY)
+        } else {
+            // For portrait (ROTATION_0) and upside-down (ROTATION_180)
+            // Camera sensor is landscape; we need to scale to fill portrait view
+            val scaleX = viewWidth.toFloat() / previewSize.height.toFloat()
+            val scaleY = viewHeight.toFloat() / previewSize.width.toFloat()
+            val scale = minOf(scaleX, scaleY)
+            matrix.setScale(scale, scale, centerX, centerY)
+            // Compensate the offset to center the scaled image
+            val scaledW = previewSize.height * scale
+            val scaledH = previewSize.width * scale
+            matrix.postTranslate((viewWidth - scaledW) / 2f - (centerX - scaledW / 2f),
+                                 (viewHeight - scaledH) / 2f - (centerY - scaledH / 2f))
+        }
+
+        textureView.setTransform(matrix)
+        overlayView.setPreviewContentRect(getPreviewContentRect(viewWidth, viewHeight))
+        Log.d("TapeWear_Reg", "Camera transform applied: preview=${previewSize.width}x${previewSize.height}, view=${viewWidth}x${viewHeight}")
     }
 
     private data class Sample(val bmp: Bitmap, val blur: Double, val luma: Double, val ts: Long)

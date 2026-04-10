@@ -11,7 +11,9 @@ object AuthConfig {
     const val DEFAULT_YOLO_CONF_THRESHOLD = 0.50f
     const val DEFAULT_USE_ML_EMBEDDER = false
     const val DEFAULT_REG_BURST_MS = 10000L
-    const val DEFAULT_REG_TARGET_FRAMES = 5
+    const val DEFAULT_REG_TARGET_FRAMES = 10
+    const val DEFAULT_HANDS_FREE_ENABLED = false
+    const val DEFAULT_HANDS_FREE_CONSECUTIVE_HITS = 3
 
     /** Minimum cosine similarity for a match verdict. */
     var MATCH_THRESHOLD = DEFAULT_MATCH_THRESHOLD
@@ -28,9 +30,15 @@ object AuthConfig {
     /** IoU threshold used by YOLO post-NMS filtering. */
     var YOLO_NMS_IOU_THRESHOLD = 0.45f
     /** Max detections kept after NMS for rendering/scoring. */
-    var YOLO_MAX_DETECTIONS = 5
+    var YOLO_MAX_DETECTIONS = 1
     /** Shared toggle for demo-video mode in both registration and authentication. */
     var DEMO_MODE = false
+
+    // ---- Hands-Free Mode ----
+    /** When enabled, auto-triggers registration/authentication after consecutive YOLO detections. */
+    var HANDS_FREE_ENABLED = DEFAULT_HANDS_FREE_ENABLED
+    /** Number of consecutive YOLO detections inside the guide box required to auto-trigger. */
+    var HANDS_FREE_CONSECUTIVE_HITS = DEFAULT_HANDS_FREE_CONSECUTIVE_HITS
 
     // ---- Embedder Architecture ----
     /** A/B Toggle to switch from Classical CV math to Siamese Neural Networks */
@@ -66,4 +74,16 @@ object AuthConfig {
     const val MAX_SLOTS = 50
     /** Maximum embeddings used per enrollment. */
     const val MAX_ENROLL_EMBEDS = 32
+
+    // ---- Experiment Mode ----
+    /** Master toggle for experiment/study mode across all pages. */
+    var EXPERIMENT_MODE = false
+    /** Illumination condition: "bright" or "dim". */
+    var EXPERIMENT_ILLUMINATION = "bright"
+    /** Distance condition: "near" or "far". */
+    var EXPERIMENT_DISTANCE = "near"
+    /** Fixed number of authentication trials per user in experiment mode. */
+    const val EXPERIMENT_AUTH_TRIALS = 3
+    /** Whether flashlight is used during dim conditions in experiment mode. */
+    var EXPERIMENT_FLASH_ENABLED = false
 }

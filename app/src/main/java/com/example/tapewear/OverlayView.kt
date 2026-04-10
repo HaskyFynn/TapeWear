@@ -73,6 +73,7 @@ class OverlayView @JvmOverloads constructor(
     }
 
     private val roiRect = RectF()
+    private val previewRect = RectF()
     private val drawDetRect = RectF()
     private val drawLabelRect = RectF()
     private val dp: Float
@@ -83,14 +84,26 @@ class OverlayView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-
-        val size = min(w, h) * roiScale
-        val left = (w - size) / 2f
-        val baseTop = (h - size) / 2f
-        val top = (baseTop + h * roiVerticalBias).coerceIn(16f * dp, h - size - 16f * dp)
-        roiRect.set(left, top, left + size, top + size)
-
+        updateRoiRect(w, h)
         borderPaint.strokeWidth = borderDp * dp
+    }
+
+    private fun updateRoiRect(w: Int, h: Int) {
+        if (w <= 0 || h <= 0) {
+            roiRect.setEmpty()
+            return
+        }
+        val bounds = if (previewRect.width() > 0f && previewRect.height() > 0f) {
+            previewRect
+        } else {
+            RectF(0f, 0f, w.toFloat(), h.toFloat())
+        }
+        val size = min(bounds.width(), bounds.height()) * roiScale
+        val left = bounds.centerX() - size / 2f
+        val baseTop = bounds.centerY() - size / 2f
+        val top = (baseTop + bounds.height() * roiVerticalBias)
+            .coerceIn(bounds.top + 16f * dp, bounds.bottom - size - 16f * dp)
+        roiRect.set(left, top, left + size, top + size)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -134,6 +147,16 @@ class OverlayView @JvmOverloads constructor(
 
     /** Rectangle used by OverlayDetector / framing logic */
     fun getFramingBox(): RectF = RectF(roiRect)
+
+    fun setPreviewContentRect(rect: RectF?) {
+        if (rect == null || rect.width() <= 0f || rect.height() <= 0f) {
+            previewRect.setEmpty()
+        } else {
+            previewRect.set(rect)
+        }
+        updateRoiRect(width, height)
+        postInvalidateOnAnimation()
+    }
 
     fun setLiveDetections(detections: List<LiveDetection>) {
         liveDetections = detections

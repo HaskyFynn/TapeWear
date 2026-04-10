@@ -28,7 +28,7 @@ object AuthConfig {
     /** Minimum normalized box area (w*h in [0..1]) accepted from YOLO output. */
     var YOLO_MIN_BOX_AREA_RATIO = 0.01f
     /** IoU threshold used by YOLO post-NMS filtering. */
-    var YOLO_NMS_IOU_THRESHOLD = 0.45f
+    var YOLO_NMS_IOU_THRESHOLD = 0.50f
     /** Max detections kept after NMS for rendering/scoring. */
     var YOLO_MAX_DETECTIONS = 1
     /** Shared toggle for demo-video mode in both registration and authentication. */

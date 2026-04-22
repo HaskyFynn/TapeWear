@@ -31,11 +31,10 @@ class OverlayView @JvmOverloads constructor(
     private val cornerDp = 24f        // corner radius in dp
     private val borderDp = 4f         // border width in dp
 
-    // Maize color for KNUST / TapeWear accent
-    private val maize = "#FFCB05".toColorInt()
+    private val accentColor = "#FFCB05".toColorInt()
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = maize
+        color = accentColor
         style = Paint.Style.STROKE
     }
 

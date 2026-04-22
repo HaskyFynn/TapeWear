@@ -1,15 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.TapeWear" parent="Theme.Material3.Dark.NoActionBar">
-        <!-- Brand colors - force Michigan palette even in dark mode -->
-        <item name="colorPrimary">@color/umich_blue</item>
+        <!-- Brand colors - keep the app palette consistent in dark mode -->
+        <item name="colorPrimary">@color/tw_primary</item>
         <item name="colorOnPrimary">@color/tw_bg</item>
-        <item name="colorSecondary">@color/umich_maize</item>
-        <item name="colorOnSecondary">@color/umich_blue</item>
+        <item name="colorSecondary">@color/tw_accent</item>
+        <item name="colorOnSecondary">@color/tw_primary</item>
 
         <!-- Surfaces -->
-        <item name="android:statusBarColor">@color/umich_blue</item>
-        <item name="android:navigationBarColor">@color/umich_blue</item>
+        <item name="android:statusBarColor">@color/tw_primary</item>
+        <item name="android:navigationBarColor">@color/tw_primary</item>
         <item name="colorSurface">@color/tw_text_primary</item>
         <item name="colorOnSurface">@color/tw_bg</item>
 

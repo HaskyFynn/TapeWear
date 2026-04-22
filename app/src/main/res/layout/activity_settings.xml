@@ -12,7 +12,7 @@
         android:id="@+id/settingsToolbar"
         android:layout_width="match_parent"
         android:layout_height="56dp"
-        android:background="@color/umich_blue"
+        android:background="@color/tw_primary"
         android:elevation="4dp"
         app:title="Developer Settings"
         app:titleTextColor="@color/tw_bg" />
@@ -41,7 +41,7 @@
                 android:text="Use Siamese ML Embedder"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginBottom="24dp" />
 
             <TextView
@@ -50,7 +50,7 @@
                 android:text="Pipeline Thresholds"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginBottom="16dp" />
 
             <com.google.android.material.textfield.TextInputLayout
@@ -84,7 +84,7 @@
                 android:text="Hands-Free Mode"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginTop="24dp"
                 android:layout_marginBottom="8dp" />
 
@@ -94,7 +94,7 @@
                 android:layout_height="wrap_content"
                 android:text="Auto-trigger on pattern detection"
                 android:textSize="16sp"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginBottom="12dp" />
 
             <com.google.android.material.textfield.TextInputLayout
@@ -115,7 +115,7 @@
                 android:text="Day Mode Quality Gates"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginTop="24dp"
                 android:layout_marginBottom="16dp" />
 
@@ -150,7 +150,7 @@
                 android:text="Night Mode Quality Gates"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginTop="24dp"
                 android:layout_marginBottom="16dp" />
 
@@ -185,7 +185,7 @@
                 android:text="Registration Capture"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginTop="24dp"
                 android:layout_marginBottom="16dp" />
 
@@ -221,7 +221,7 @@
                 android:text="Experiment Mode"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginTop="32dp"
                 android:layout_marginBottom="16dp" />
                 
@@ -240,7 +240,7 @@
                 android:text="Enable Experiment Mode"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:textColor="@color/umich_blue"
+                android:textColor="@color/tw_primary"
                 android:layout_marginBottom="16dp" />
 
             <LinearLayout
@@ -256,7 +256,7 @@
                     android:layout_height="wrap_content"
                     android:text="Use Flashlight During Dim Experiments"
                     android:textSize="16sp"
-                    android:textColor="@color/umich_blue"
+                    android:textColor="@color/tw_primary"
                     android:layout_marginBottom="12dp" />
 
                 <com.google.android.material.textfield.TextInputLayout
@@ -374,8 +374,8 @@
                     android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="Save &amp; Apply"
-                    app:backgroundTint="@color/umich_maize"
-                    android:textColor="@color/umich_blue"
+                    app:backgroundTint="@color/tw_accent"
+                    android:textColor="@color/tw_primary"
                     android:textStyle="bold" />
 
             </LinearLayout>

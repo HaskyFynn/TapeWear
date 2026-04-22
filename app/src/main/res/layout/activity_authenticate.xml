@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/umich_blue"
+    android:background="@color/tw_primary"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <!-- Top app bar -->
@@ -238,7 +238,7 @@
             android:layout_gravity="center_horizontal"
             android:layout_marginVertical="4dp"
             android:text="Trial 1/3"
-            android:textColor="@color/umich_maize"
+                    android:textColor="@color/tw_accent"
             android:textSize="16sp"
             android:textStyle="bold"
             android:visibility="gone" />
@@ -257,8 +257,8 @@
                 android:text="Authenticate"
                 android:textAllCaps="false"
                 android:textSize="15sp"
-                app:backgroundTint="@color/umich_maize"
-                android:textColor="@color/umich_blue"
+                    app:backgroundTint="@color/tw_accent"
+                    android:textColor="@color/tw_primary"
                 android:textStyle="bold" />
 
             <LinearLayout
@@ -283,7 +283,7 @@
                         android:max="100"
                         android:progress="0"
                         android:indeterminate="false"
-                        android:progressDrawable="@drawable/progress_maize" />
+                android:progressDrawable="@drawable/progress_accent" />
 
                     <!-- Experiment Mode Cancel Button -->
                     <Button
@@ -375,7 +375,7 @@
                     android:layout_weight="1"
                     android:text="Next Trial"
                     app:backgroundTint="@color/tw_bg"
-                    android:textColor="@color/umich_blue" />
+                android:textColor="@color/tw_primary" />
             </LinearLayout>
         </LinearLayout>
         
@@ -413,7 +413,7 @@
                 android:layout_height="50dp"
                 android:text="Next User (Return to Registration)"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/umich_blue"
+                app:backgroundTint="@color/tw_primary"
                 android:textColor="@color/tw_bg" />
         </LinearLayout>
 

@@ -5,10 +5,10 @@
     <color name="teal_200">#FF03DAC5</color>
     <color name="black">#FF000000</color>
 
-    <!-- Michigan palette -->
-    <color name="umich_blue">#00274C</color>
+    <!-- App palette -->
+    <color name="tw_primary">#00274C</color>
     <!-- softer top bar / surfaces -->
-    <color name="umich_maize">#FFCB05</color>
+    <color name="tw_accent">#FFCB05</color>
 
     <!-- neutrals -->
     <color name="tw_text_primary">#0A0A0A</color>

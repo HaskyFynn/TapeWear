@@ -12,7 +12,7 @@
         <clip>
             <shape>
                 <corners android:radius="4dp" />
-                <solid android:color="@color/umich_maize" />
+                <solid android:color="@color/tw_accent" />
             </shape>
         </clip>
     </item>

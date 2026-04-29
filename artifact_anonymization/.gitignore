@@ -1,0 +1,5 @@
+incoming/documents/*
+incoming/images/*
+!incoming/documents/.gitkeep
+!incoming/images/.gitkeep
+

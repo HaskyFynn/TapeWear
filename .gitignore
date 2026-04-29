@@ -13,3 +13,11 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Local working files that should not be included in anonymous artifact submissions.
+.gradle-user/
+.kotlin/
+/tmp/
+/diff.txt
+/output.txt
+/extract_docx.py

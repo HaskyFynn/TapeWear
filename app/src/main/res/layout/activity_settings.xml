@@ -224,7 +224,7 @@
                 android:textColor="@color/tw_primary"
                 android:layout_marginTop="32dp"
                 android:layout_marginBottom="16dp" />
-                
+
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -317,10 +317,43 @@
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Compute 30x30 Cross-Authentication"
+                    android:text="Compute PUF Similarity Matrix"
                     android:layout_marginBottom="8dp" />
             </LinearLayout>
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Embedding Transfer"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="@color/tw_primary"
+                android:layout_marginTop="32dp"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Export enrolled pattern templates for offline analysis, or import an embedding archive into pattern slots for authentication."
+                android:textSize="14sp"
+                android:textColor="@android:color/darker_gray"
+                android:layout_marginBottom="12dp" />
+
+            <Button
+                android:id="@+id/btnExportEmbeddings"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Export Embeddings (Zip &amp; Share)"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btnImportEmbeddings"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Import Embeddings to Slots"
+                android:layout_marginBottom="8dp" />
             <LinearLayout
                 android:id="@+id/settingsStatusRow"
                 android:layout_width="match_parent"

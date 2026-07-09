@@ -24,6 +24,9 @@ object EnrollmentStore {
     private const val KEY_DIM = "dim"
     private const val KEY_COUNT = "count"
 
+    const val PIPELINE_CV = "cv"
+    const val PIPELINE_ML = "ml"
+
     // ---- Active slot ----
 
     @Volatile
@@ -48,6 +51,12 @@ object EnrollmentStore {
         override fun hashCode(): Int = 31 * count + mean.contentHashCode()
     }
 
+    data class StoredEnrollment(
+        val slot: Int,
+        val pipelineMode: String,
+        val enroll: Enroll
+    )
+
     // ---- Cache ----
 
     @Volatile
@@ -58,14 +67,30 @@ object EnrollmentStore {
     private fun modelsDir(ctx: Context) =
         File(ctx.filesDir, MODELS_DIR).apply { mkdirs() }
 
-    private fun fileForSlot(ctx: Context, slot: Int): File {
-        val suffix = if (AuthConfig.USE_ML_EMBEDDER) "_ml" else "_cv"
+    fun pipelineMode(useMlEmbedder: Boolean = AuthConfig.USE_ML_EMBEDDER): String =
+        if (useMlEmbedder) PIPELINE_ML else PIPELINE_CV
+
+    fun useMlForPipeline(pipelineMode: String): Boolean =
+        pipelineMode.equals(PIPELINE_ML, ignoreCase = true)
+
+    private fun fileForSlot(
+        ctx: Context,
+        slot: Int,
+        useMlEmbedder: Boolean = AuthConfig.USE_ML_EMBEDDER
+    ): File {
+        val suffix = if (useMlEmbedder) "_ml" else "_cv"
         return File(modelsDir(ctx), "pattern_%02d%s.json".format(slot, suffix))
     }
 
     // ---- Public API ----
 
-    fun save(ctx: Context, mean: FloatArray, count: Int, slot: Int) {
+    fun save(
+        ctx: Context,
+        mean: FloatArray,
+        count: Int,
+        slot: Int,
+        useMlEmbedder: Boolean = AuthConfig.USE_ML_EMBEDDER
+    ) {
         val bb = ByteBuffer.allocate(mean.size * 4).apply {
             order(ByteOrder.LITTLE_ENDIAN)
             asFloatBuffer().put(mean)
@@ -75,18 +100,22 @@ object EnrollmentStore {
             .put(KEY_DIM, mean.size)
             .put(KEY_COUNT, count)
             .put(KEY_VEC, vecStr)
-        fileForSlot(ctx, slot).writeText(js.toString())
-        cachedEnroll = Triple(slot, AuthConfig.USE_ML_EMBEDDER, Enroll(mean.copyOf(), count))
-        Log.i(TAG, "Saved enroll slot=$slot dim=${mean.size} count=$count")
+        fileForSlot(ctx, slot, useMlEmbedder).writeText(js.toString())
+        cachedEnroll = Triple(slot, useMlEmbedder, Enroll(mean.copyOf(), count))
+        Log.i(TAG, "Saved enroll slot=$slot mode=${pipelineMode(useMlEmbedder)} dim=${mean.size} count=$count")
     }
 
-    fun load(ctx: Context, slot: Int = activeSlot): Enroll? {
-        val isML = AuthConfig.USE_ML_EMBEDDER
+    fun load(
+        ctx: Context,
+        slot: Int = activeSlot,
+        useMlEmbedder: Boolean = AuthConfig.USE_ML_EMBEDDER
+    ): Enroll? {
+        val isML = useMlEmbedder
         cachedEnroll?.let { (s, m, e) -> if (s == slot && m == isML) return e }
 
         val f = when {
-            fileForSlot(ctx, slot).exists() -> fileForSlot(ctx, slot)
-            slot == 1 && File(ctx.filesDir, LEGACY_ENROLL_FILE).exists() ->
+            fileForSlot(ctx, slot, useMlEmbedder).exists() -> fileForSlot(ctx, slot, useMlEmbedder)
+            slot == 1 && !useMlEmbedder && File(ctx.filesDir, LEGACY_ENROLL_FILE).exists() ->
                 File(ctx.filesDir, LEGACY_ENROLL_FILE)
             else -> return null
         }
@@ -99,21 +128,41 @@ object EnrollmentStore {
             val fb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
             val arr = FloatArray(dim)
             fb.get(arr)
-            Log.i(TAG, "Loaded enroll slot=$slot dim=$dim count=$count")
-            Enroll(arr, count).also { cachedEnroll = Triple(slot, AuthConfig.USE_ML_EMBEDDER, it) }
+            Log.i(TAG, "Loaded enroll slot=$slot mode=${pipelineMode(useMlEmbedder)} dim=$dim count=$count")
+            Enroll(arr, count).also { cachedEnroll = Triple(slot, useMlEmbedder, it) }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load enroll slot=$slot: ${e.message}", e)
             null
         }
     }
 
-    fun hasModel(ctx: Context, slot: Int = activeSlot): Boolean {
-        val f = fileForSlot(ctx, slot)
+    fun hasModel(
+        ctx: Context,
+        slot: Int = activeSlot,
+        useMlEmbedder: Boolean = AuthConfig.USE_ML_EMBEDDER
+    ): Boolean {
+        val f = fileForSlot(ctx, slot, useMlEmbedder)
         if (f.exists() && f.length() > 0) return true
-        if (slot == 1) {
+        if (slot == 1 && !useMlEmbedder) {
             val legacy = File(ctx.filesDir, LEGACY_ENROLL_FILE)
             if (legacy.exists() && legacy.length() > 0) return true
         }
         return false
+    }
+
+    fun listStoredEnrollments(ctx: Context): List<StoredEnrollment> {
+        val stored = mutableListOf<StoredEnrollment>()
+        for (slot in 1..AuthConfig.MAX_SLOTS) {
+            for (useMl in listOf(false, true)) {
+                if (!hasModel(ctx, slot, useMl)) continue
+                val enroll = load(ctx, slot, useMl) ?: continue
+                stored += StoredEnrollment(
+                    slot = slot,
+                    pipelineMode = pipelineMode(useMl),
+                    enroll = enroll
+                )
+            }
+        }
+        return stored
     }
 }

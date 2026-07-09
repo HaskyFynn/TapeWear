@@ -604,6 +604,16 @@ object ExperimentStore {
     }
 
     @Synchronized
+    fun upsertTagSlot(context: Context, tag: String, slot: Int) {
+        ensureTagsLoaded(context)
+        val normalized = normalizeTag(tag)
+        if (normalized.isBlank()) return
+        tagToSlotMap[normalized] = slot.coerceIn(1, AuthConfig.MAX_SLOTS)
+        saveTags(context)
+        Log.i(TAG, "Imported tag '$normalized' to slot ${tagToSlotMap[normalized]}")
+    }
+
+    @Synchronized
     fun isTagRegistered(context: Context, tag: String): Boolean {
         ensureTagsLoaded(context)
         return tagToSlotMap.containsKey(normalizeTag(tag))

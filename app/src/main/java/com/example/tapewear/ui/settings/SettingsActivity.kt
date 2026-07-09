@@ -1,5 +1,6 @@
 package com.example.tapewear.ui.settings
 
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -8,11 +9,13 @@ import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doAfterTextChanged
 import com.example.tapewear.Quality
 import com.example.tapewear.R
 import com.example.tapewear.config.AuthConfig
+import com.example.tapewear.data.EmbeddingArchiveStore
 import com.example.tapewear.data.ExperimentStore
 import com.example.tapewear.data.SettingsStore
 import com.example.tapewear.ml.CrossAuthEngine
@@ -44,6 +47,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnStartNewStudySession: Button
     private lateinit var btnExportMetrics: Button
     private lateinit var btnRunCrossAuth: Button
+    private lateinit var btnExportEmbeddings: Button
+    private lateinit var btnImportEmbeddings: Button
     private lateinit var btnSaveSettings: Button
     private lateinit var btnResetSettings: Button
     private lateinit var settingsStatusRow: View
@@ -54,6 +59,12 @@ class SettingsActivity : AppCompatActivity() {
     private var statusHideRunnable: Runnable? = null
     private var suppressAutosaveSignals = false
     private var autosavePending = false
+
+    private val importEmbeddingsLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { importEmbeddings(it) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,6 +92,8 @@ class SettingsActivity : AppCompatActivity() {
         btnStartNewStudySession = findViewById(R.id.btnStartNewStudySession)
         btnExportMetrics = findViewById(R.id.btnExportMetrics)
         btnRunCrossAuth = findViewById(R.id.btnRunCrossAuth)
+        btnExportEmbeddings = findViewById(R.id.btnExportEmbeddings)
+        btnImportEmbeddings = findViewById(R.id.btnImportEmbeddings)
         btnSaveSettings = findViewById(R.id.btnSaveSettings)
         btnResetSettings = findViewById(R.id.btnResetSettings)
         settingsStatusRow = findViewById(R.id.settingsStatusRow)
@@ -101,15 +114,23 @@ class SettingsActivity : AppCompatActivity() {
             showSettingsStatus("Defaults restored", showSpinner = false, autoHideMs = 1200L)
             Toast.makeText(this, "Restored defaults", Toast.LENGTH_SHORT).show()
         }
-        
+
         btnExportMetrics.setOnClickListener {
             exportMetrics()
+        }
+
+        btnExportEmbeddings.setOnClickListener {
+            exportEmbeddings()
+        }
+
+        btnImportEmbeddings.setOnClickListener {
+            launchImportEmbeddings()
         }
 
         btnStartNewStudySession.setOnClickListener {
             startNewStudySession()
         }
-        
+
         btnRunCrossAuth.setOnClickListener {
             runCrossAuth()
         }
@@ -128,7 +149,7 @@ class SettingsActivity : AppCompatActivity() {
         inputNightBlurMin.setText(Quality.NIGHT.blurMin.toString())
         switchHandsFree.isChecked = AuthConfig.HANDS_FREE_ENABLED
         inputHandsFreeHits.setText(AuthConfig.HANDS_FREE_CONSECUTIVE_HITS.toString())
-        
+
         switchExperimentMode.isChecked = AuthConfig.EXPERIMENT_MODE
         experimentActionsGroup.visibility = if (AuthConfig.EXPERIMENT_MODE) android.view.View.VISIBLE else android.view.View.GONE
         val metadata = ExperimentStore.getStudyMetadata(this)
@@ -237,6 +258,8 @@ class SettingsActivity : AppCompatActivity() {
         btnStartNewStudySession.isEnabled = enabled
         btnExportMetrics.isEnabled = enabled
         btnRunCrossAuth.isEnabled = enabled
+        btnExportEmbeddings.isEnabled = enabled
+        btnImportEmbeddings.isEnabled = enabled
     }
 
     private fun updateBlurHints(mlOn: Boolean) {
@@ -440,7 +463,80 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, e.message ?: "Set study metadata first", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
+    private fun exportEmbeddings() {
+        cancelPendingAutosave()
+        if (!flushPendingAutosave(showErrors = true)) return
+
+        showSettingsStatus("Preparing embedding archive... Please wait.", showSpinner = true)
+        setActionButtonsEnabled(false)
+
+        Thread {
+            try {
+                val summary = EmbeddingArchiveStore.exportArchive(this)
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this,
+                    "${applicationContext.packageName}.fileprovider",
+                    summary.file
+                )
+
+                runOnUiThread {
+                    setActionButtonsEnabled(true)
+                    showSettingsStatus(
+                        "Embedding archive ready (${summary.templateCount} template(s))",
+                        showSpinner = false,
+                        autoHideMs = 1500L
+                    )
+                    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "application/zip"
+                        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(android.content.Intent.createChooser(intent, "Share Embedding Archive"))
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("TapeWear_Settings", "Embedding export failed", e)
+                runOnUiThread {
+                    setActionButtonsEnabled(true)
+                    showSettingsStatus("Embedding export failed", showSpinner = false, autoHideMs = 1800L)
+                    Toast.makeText(this@SettingsActivity, "Embedding export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun launchImportEmbeddings() {
+        cancelPendingAutosave()
+        if (!flushPendingAutosave(showErrors = true)) return
+        importEmbeddingsLauncher.launch(
+            arrayOf("application/zip", "application/json", "application/octet-stream", "*/*")
+        )
+    }
+
+    private fun importEmbeddings(uri: Uri) {
+        showSettingsStatus("Importing embeddings... Please wait.", showSpinner = true)
+        setActionButtonsEnabled(false)
+
+        Thread {
+            try {
+                val summary = EmbeddingArchiveStore.importArchive(this, uri)
+                runOnUiThread {
+                    setActionButtonsEnabled(true)
+                    updateStudySummary()
+                    showSettingsStatus(summary.userMessage(), showSpinner = false, autoHideMs = 1800L)
+                    Toast.makeText(this, summary.userMessage(), Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("TapeWear_Settings", "Embedding import failed", e)
+                runOnUiThread {
+                    setActionButtonsEnabled(true)
+                    showSettingsStatus("Embedding import failed", showSpinner = false, autoHideMs = 1800L)
+                    Toast.makeText(this@SettingsActivity, "Embedding import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     private fun exportMetrics() {
         cancelPendingAutosave()
         if (!flushPendingAutosave(showErrors = true)) return
@@ -459,11 +555,11 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, "No metrics to export", Toast.LENGTH_SHORT).show()
             return
         }
-        
+
         showSettingsStatus("Preparing metrics export... Please wait.", showSpinner = true)
         Toast.makeText(this, "Zipping metrics...", Toast.LENGTH_SHORT).show()
         btnExportMetrics.isEnabled = false
-        
+
         Thread {
             try {
                 val zipFile = java.io.File(cacheDir, "TapeWearMetrics_${System.currentTimeMillis()}.zip")
@@ -484,13 +580,13 @@ class SettingsActivity : AppCompatActivity() {
                         }
                     }
                 }
-                
+
                 val uri = androidx.core.content.FileProvider.getUriForFile(
                     this,
                     "${applicationContext.packageName}.fileprovider",
                     zipFile
                 )
-                
+
                 runOnUiThread {
                     btnExportMetrics.isEnabled = true
                     showSettingsStatus("Metrics zip ready to share", showSpinner = false, autoHideMs = 1500L)
@@ -501,7 +597,7 @@ class SettingsActivity : AppCompatActivity() {
                     }
                     startActivity(android.content.Intent.createChooser(intent, "Share Metrics Zip"))
                 }
-                
+
             } catch (e: Exception) {
                 android.util.Log.e("TapeWear_Settings", "Export failed", e)
                 runOnUiThread {
@@ -517,12 +613,12 @@ class SettingsActivity : AppCompatActivity() {
         if (!AuthConfig.EXPERIMENT_MODE) return
         cancelPendingAutosave()
         if (!flushPendingAutosave(showErrors = true)) return
-        
+
         showSettingsStatus("Computing cross-auth matrix... Please wait.", showSpinner = true)
         Toast.makeText(this, "Starting Cross-Authentication Engine...", Toast.LENGTH_LONG).show()
         btnRunCrossAuth.isEnabled = false
         btnRunCrossAuth.text = "Computing Matrix... (Check Logcat)"
-        
+
         Thread {
             try {
                 val summary = CrossAuthEngine.computeSimilarityMatrix(this)
@@ -546,7 +642,7 @@ class SettingsActivity : AppCompatActivity() {
             } finally {
                 runOnUiThread {
                     btnRunCrossAuth.isEnabled = true
-                    btnRunCrossAuth.text = "Compute 30x30 Cross-Authentication"
+                    btnRunCrossAuth.text = "Compute PUF Similarity Matrix"
                 }
             }
         }.start()

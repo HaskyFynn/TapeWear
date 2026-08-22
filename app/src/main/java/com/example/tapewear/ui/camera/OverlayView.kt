@@ -5,6 +5,7 @@ import android.graphics.*
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
+import com.example.tapewear.ml.ModelManager
 import kotlin.math.min
 import androidx.core.graphics.toColorInt
 
@@ -15,7 +16,8 @@ class OverlayView @JvmOverloads constructor(
 
     data class LiveDetection(
         val box: RectF,
-        val score: Float
+        val score: Float,
+        val quad: List<PointF>? = null
     )
 
     /** Message shown above the box */
@@ -75,6 +77,7 @@ class OverlayView @JvmOverloads constructor(
     private val previewRect = RectF()
     private val drawDetRect = RectF()
     private val drawLabelRect = RectF()
+    private val drawQuadPath = Path()
     private val dp: Float
         get() = resources.displayMetrics.density
 
@@ -122,7 +125,18 @@ class OverlayView @JvmOverloads constructor(
 
             canvas.drawRoundRect(drawDetRect, 10f * dp, 10f * dp, detStrokePaint)
 
-            val label = "YOLO ${(det.score * 100f).toInt()}%"
+            val quad = det.quad
+            if (quad != null && quad.size == 4) {
+                drawQuadPath.reset()
+                drawQuadPath.moveTo(quad[0].x, quad[0].y)
+                for (i in 1 until 4) {
+                    drawQuadPath.lineTo(quad[i].x, quad[i].y)
+                }
+                drawQuadPath.close()
+                canvas.drawPath(drawQuadPath, detStrokePaint)
+            }
+
+            val label = "${ModelManager.activeDetectorLabel()} ${(det.score * 100f).toInt()}%"
             val labelW = detLabelTextPaint.measureText(label) + 12f * dp
             val labelH = 18f * dp
             val labelLeft = drawDetRect.left

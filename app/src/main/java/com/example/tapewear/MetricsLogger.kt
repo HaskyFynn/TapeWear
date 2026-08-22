@@ -124,7 +124,10 @@ object MetricsLogger {
 
     private fun runtimeConfig(nightMode: Boolean): RuntimeConfigSnapshot {
         val gates = if (nightMode) Quality.NIGHT else Quality.DAY
-        val detector = if (ModelManager.detector is ModelManager.TFLiteYoloDetector) "yolo" else "none"
+        val detector = when (ModelManager.activeDetectorName()) {
+            "taw_loc" -> if (AuthConfig.TAWLOC_USE_CANONICAL_WARP) "taw_loc_warp" else "taw_loc_box"
+            else -> ModelManager.activeDetectorName()
+        }
         val experimentMode = AuthConfig.EXPERIMENT_MODE
         val captureIllumination = if (experimentMode) {
             AuthConfig.EXPERIMENT_ILLUMINATION.lowercase(Locale.US)

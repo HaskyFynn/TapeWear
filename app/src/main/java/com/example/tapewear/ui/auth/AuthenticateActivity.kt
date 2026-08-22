@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
@@ -409,13 +410,13 @@ class AuthenticateActivity : AppCompatActivity() {
                 }
             }
         } else {
-            // Pure demo: camera UI hidden, detector can still be YOLO if present
+            // Pure demo: camera UI hidden, detector can still run if present
             Log.d("TapeWear_Auth", "AuthenticateActivity in DEMO mode using asset video")
             textureView.visibility = View.GONE
             demoImage.visibility = View.VISIBLE
             overlayView.statusText = getString(R.string.auth_hint_align)
             if (ModelManager.detector == null) {
-                Log.w("TapeWear_Auth", "DEMO mode active but YOLO detector is not initialized.")
+                Log.w("TapeWear_Auth", "DEMO mode active but detector is not initialized.")
             }
             torchTelemetry.configure(cameraId = null, flashAvailable = false)
         }
@@ -626,10 +627,15 @@ class AuthenticateActivity : AppCompatActivity() {
     }
 
     private fun refreshRuntimeConfigUi() {
-        val yoloLabel = if (isYoloReady()) {
-            String.format(Locale.US, "YOLO %.2f", AuthConfig.YOLO_CONF_THRESHOLD)
+        val detectorLabel = if (isYoloReady()) {
+            String.format(
+                Locale.US,
+                "%s %.2f",
+                ModelManager.activeDetectorLabel(),
+                ModelManager.detectorConfidenceThreshold()
+            )
         } else {
-            "YOLO missing"
+            "${ModelManager.configuredDetectorLabel()} missing"
         }
         val triggerLabel = if (AuthConfig.HANDS_FREE_ENABLED) {
             "Auto x${AuthConfig.HANDS_FREE_CONSECUTIVE_HITS}"
@@ -654,7 +660,7 @@ class AuthenticateActivity : AppCompatActivity() {
                 tag,
                 slot,
                 AuthConfig.MATCH_THRESHOLD,
-                yoloLabel,
+                detectorLabel,
                 illumination,
                 distance,
                 flashLabel,
@@ -675,7 +681,7 @@ class AuthenticateActivity : AppCompatActivity() {
                 slot,
                 modelLabel,
                 AuthConfig.MATCH_THRESHOLD,
-                yoloLabel,
+                detectorLabel,
                 modeLabel,
                 flashLabel,
                 triggerLabel
@@ -902,7 +908,7 @@ class AuthenticateActivity : AppCompatActivity() {
         )
     }
 
-    private fun isYoloReady(): Boolean = ModelManager.detector is ModelManager.TFLiteYoloDetector
+    private fun isYoloReady(): Boolean = ModelManager.isDetectorReady()
 
     private fun modelThreads(): Int {
         val fp = android.os.Build.FINGERPRINT.lowercase(Locale.US)
@@ -917,7 +923,7 @@ class AuthenticateActivity : AppCompatActivity() {
     }
 
     private fun ensureModelsInitializedIfNeeded() {
-        if (isYoloReady() && ModelManager.mlEmbedder != null) return
+        if (isYoloReady() && ModelManager.detectorMatchesConfig() && ModelManager.mlEmbedder != null) return
         if (!modelInitRunning.compareAndSet(false, true)) return
 
         Thread {
@@ -925,13 +931,10 @@ class AuthenticateActivity : AppCompatActivity() {
             val t0 = SystemClock.elapsedRealtime()
             try {
                 synchronized(ModelManager) {
-                    if (ModelManager.detector == null) {
-                        ModelManager.detector = ModelManager.TFLiteYoloDetector(
-                            context = applicationContext,
-                            assetName = "best_float32.tflite",
-                            numThreads = threads
-                        )
-                    }
+                    ModelManager.ensureConfiguredDetector(
+                        context = applicationContext,
+                        numThreads = threads
+                    )
                     if (ModelManager.mlEmbedder == null) {
                         ModelManager.mlEmbedder = TfLiteEmbedder(
                             context = applicationContext,
@@ -1042,8 +1045,8 @@ class AuthenticateActivity : AppCompatActivity() {
         torchTelemetry.resetAttempt()
         if (!isYoloReady()) {
             authRunning.set(false)
-            overlayView.statusText = "YOLO unavailable"
-            Toast.makeText(this, "YOLO detector is required", Toast.LENGTH_SHORT).show()
+            overlayView.statusText = "Detector unavailable"
+            Toast.makeText(this, "${ModelManager.configuredDetectorLabel()} detector is required", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -1133,7 +1136,7 @@ class AuthenticateActivity : AppCompatActivity() {
     }
 
     private fun runAuthBurst(night: Boolean, settleActualMs: Long) {
-        // Single-frame capture with YOLO-first pipeline.
+        // Single-frame capture with detector-first pipeline.
         val bg = backgroundHandler
         if (bg == null) {
             logExperimentAuthStatus(
@@ -1178,11 +1181,11 @@ class AuthenticateActivity : AppCompatActivity() {
                 return@post
             }
 
-            // Stage: detect + quality gate (quality only on YOLO-positive frames)
+            // Stage: detect + quality gate (quality only on detector-positive frames)
             val tQual0 = SystemClock.elapsedRealtime()
             val detOutcome = detectFrame(sample, updateOverlay = true)
             if (!detOutcome.hasDetection) {
-                preScoreHint = "No YOLO detection above ${"%.2f".format(Locale.US, AuthConfig.YOLO_CONF_THRESHOLD)}"
+                preScoreHint = "No ${ModelManager.configuredDetectorLabel()} detection above ${"%.2f".format(Locale.US, ModelManager.detectorConfidenceThreshold())}"
                 sample.recycle()
             } else {
                 val luma = ImageUtils.meanLuma(sample)
@@ -1286,7 +1289,7 @@ class AuthenticateActivity : AppCompatActivity() {
                     finalSim = 0f
                     isMatch = false
                     usedN = 0
-                    Log.w("TapeWear_Auth", "No valid YOLO-scored frame; returning no-pattern result")
+                    Log.w("TapeWear_Auth", "No valid detector-scored frame; returning no-pattern result")
                 }
 
                 val totalFrames = frames.size
@@ -1504,7 +1507,7 @@ class AuthenticateActivity : AppCompatActivity() {
                 val outcome = detectFrame(frame, updateOverlay = true)
                 onLiveDetectionOutcome(outcome)
             } catch (e: Exception) {
-                Log.w("TapeWear_Auth", "Live YOLO failed: ${e.message}")
+                Log.w("TapeWear_Auth", "Live detector failed: ${e.message}")
             } finally {
                 val inferMs = SystemClock.elapsedRealtime() - now
                 updateLiveDetectGap(inferMs)
@@ -1554,7 +1557,7 @@ class AuthenticateActivity : AppCompatActivity() {
                                     frame.recycle()
                                 }
                             } catch (e: Exception) {
-                                Log.w("TapeWear_Auth", "Demo live YOLO failed: ${e.message}")
+                                Log.w("TapeWear_Auth", "Demo live detector failed: ${e.message}")
                             } finally {
                                 val inferMs = SystemClock.elapsedRealtime() - detectStart
                                 updateLiveDetectGap(inferMs)
@@ -1617,7 +1620,7 @@ class AuthenticateActivity : AppCompatActivity() {
 
     private fun detectFrame(frame: Bitmap, updateOverlay: Boolean): FrameDetectionOutcome {
         val det = ModelManager.detector
-        if (det !is ModelManager.TFLiteYoloDetector) {
+        if (det == null || !ModelManager.isDetectorReady()) {
             if (updateOverlay) {
                 mainHandler.post { overlayView.clearLiveDetections() }
             }
@@ -1629,7 +1632,8 @@ class AuthenticateActivity : AppCompatActivity() {
         val mapped = detections.map {
             OverlayView.LiveDetection(
                 box = mapFrameRectToOverlay(it.box, frameW, frameH),
-                score = it.score
+                score = it.score,
+                quad = it.supportQuad?.map { point -> mapFramePointToOverlay(point, frameW, frameH) }
             )
         }
         val framing = overlayView.getFramingBox()
@@ -1695,6 +1699,22 @@ class AuthenticateActivity : AppCompatActivity() {
             box.right * scale + offsetX,
             box.bottom * scale + offsetY
         )
+    }
+
+    private fun mapFramePointToOverlay(point: PointF, frameW: Int, frameH: Int): PointF {
+        val previewRect = getPreviewContentRect(overlayView.width, overlayView.height)
+        val targetRect = if (previewRect.width() > 0f && previewRect.height() > 0f) {
+            previewRect
+        } else {
+            RectF(0f, 0f, overlayView.width.toFloat(), overlayView.height.toFloat())
+        }
+        val scale = minOf(
+            targetRect.width() / frameW.toFloat(),
+            targetRect.height() / frameH.toFloat()
+        )
+        val offsetX = targetRect.left + (targetRect.width() - frameW * scale) / 2f
+        val offsetY = targetRect.top + (targetRect.height() - frameH * scale) / 2f
+        return PointF(point.x * scale + offsetX, point.y * scale + offsetY)
     }
 
     private fun setTorch(on: Boolean) {

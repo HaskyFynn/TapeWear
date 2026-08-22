@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
@@ -345,7 +346,7 @@ class RegisterActivity : AppCompatActivity() {
 
         if (demoMode && ModelManager.detector == null) {
 
-            Log.w("TapeWear_Reg", "DEMO mode active but YOLO detector is not initialized.")
+            Log.w("TapeWear_Reg", "DEMO mode active but detector is not initialized.")
         }
 
         // Camera choice (only if not in demo)
@@ -574,13 +575,14 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun refreshRuntimeConfigUi() {
-        val detName = if (isYoloReady()) "YOLO" else "YOLO_MISSING"
+        val detName = if (isYoloReady()) ModelManager.activeDetectorLabel() else "${ModelManager.configuredDetectorLabel()} missing"
         modeIndicator.text = if (AuthConfig.USE_ML_EMBEDDER) "ML Pipeline" else "CV Pipeline"
         runtimeThresholds.text = String.format(
             Locale.US,
-            "Match %.2f | YOLO %.2f | Frames %d | Burst %dms | Detector: %s",
+            "Match %.2f | %s %.2f | Frames %d | Burst %dms | Detector: %s",
             AuthConfig.MATCH_THRESHOLD,
-            AuthConfig.YOLO_CONF_THRESHOLD,
+            ModelManager.configuredDetectorLabel(),
+            ModelManager.detectorConfidenceThreshold(),
             AuthConfig.REG_TARGET_FRAMES,
             AuthConfig.REG_BURST_MS,
             detName
@@ -696,7 +698,7 @@ class RegisterActivity : AppCompatActivity() {
         )
     }
 
-    private fun isYoloReady(): Boolean = ModelManager.detector is ModelManager.TFLiteYoloDetector
+    private fun isYoloReady(): Boolean = ModelManager.isDetectorReady()
 
     private fun modelThreads(): Int {
         val fp = android.os.Build.FINGERPRINT.lowercase(Locale.US)
@@ -711,7 +713,7 @@ class RegisterActivity : AppCompatActivity() {
     }
 
     private fun ensureModelsInitializedIfNeeded() {
-        if (isYoloReady() && ModelManager.mlEmbedder != null) return
+        if (isYoloReady() && ModelManager.detectorMatchesConfig() && ModelManager.mlEmbedder != null) return
         if (!modelInitRunning.compareAndSet(false, true)) return
 
         Thread {
@@ -719,13 +721,10 @@ class RegisterActivity : AppCompatActivity() {
             val t0 = SystemClock.elapsedRealtime()
             try {
                 synchronized(ModelManager) {
-                    if (ModelManager.detector == null) {
-                        ModelManager.detector = ModelManager.TFLiteYoloDetector(
-                            context = applicationContext,
-                            assetName = "best_float32.tflite",
-                            numThreads = threads
-                        )
-                    }
+                    ModelManager.ensureConfiguredDetector(
+                        context = applicationContext,
+                        numThreads = threads
+                    )
                     if (ModelManager.mlEmbedder == null) {
                         ModelManager.mlEmbedder = TfLiteEmbedder(
                             context = applicationContext,
@@ -836,9 +835,9 @@ class RegisterActivity : AppCompatActivity() {
         if (regRunning.getAndSet(true)) return
         if (!isYoloReady()) {
             regRunning.set(false)
-            overlayView.statusText = "YOLO unavailable"
-            topMessage.text = "YOLO model not loaded"
-            toast("YOLO detector is required")
+            overlayView.statusText = "Detector unavailable"
+            topMessage.text = "Detector model not loaded"
+            toast("${ModelManager.configuredDetectorLabel()} detector is required")
             return
         }
 
@@ -999,7 +998,7 @@ class RegisterActivity : AppCompatActivity() {
                     val detOutcome = detectFrame(frame, updateOverlay = true)
                     if (!detOutcome.hasDetection) {
                         mainHandler.post {
-                            topMessage.text = "No YOLO detection above ${"%.2f".format(Locale.US, AuthConfig.YOLO_CONF_THRESHOLD)}"
+                            topMessage.text = "No ${ModelManager.configuredDetectorLabel()} detection above ${"%.2f".format(Locale.US, ModelManager.detectorConfidenceThreshold())}"
                         }
                         frame.recycle()
                     } else {
@@ -1013,7 +1012,7 @@ class RegisterActivity : AppCompatActivity() {
                         val assessment = Quality.assess(luma, blur, motion, nightMode)
                         Log.d(
                             "TapeWear_Reg",
-                            "YOLO(found)->Quality(full-frame): det=${detOutcome.detections.size}, luma=%.1f, blur=%.1f, motion=%.1f -> pass=${assessment.pass}"
+                            "Detector(found)->Quality(full-frame): det=${detOutcome.detections.size}, luma=%.1f, blur=%.1f, motion=%.1f -> pass=${assessment.pass}"
                                 .format(luma, blur, motion)
                         )
 
@@ -1300,7 +1299,7 @@ class RegisterActivity : AppCompatActivity() {
                 val outcome = detectFrame(frame, updateOverlay = true)
                 onLiveDetectionOutcome(outcome)
             } catch (e: Exception) {
-                Log.w("TapeWear_Reg", "Live YOLO failed: ${e.message}")
+                Log.w("TapeWear_Reg", "Live detector failed: ${e.message}")
             } finally {
                 val inferMs = SystemClock.elapsedRealtime() - now
                 updateLiveDetectGap(inferMs)
@@ -1350,7 +1349,7 @@ class RegisterActivity : AppCompatActivity() {
                                     frame.recycle()
                                 }
                             } catch (e: Exception) {
-                                Log.w("TapeWear_Reg", "Demo live YOLO failed: ${e.message}")
+                                Log.w("TapeWear_Reg", "Demo live detector failed: ${e.message}")
                             } finally {
                                 val inferMs = SystemClock.elapsedRealtime() - detectStart
                                 updateLiveDetectGap(inferMs)
@@ -1413,7 +1412,7 @@ class RegisterActivity : AppCompatActivity() {
 
     private fun detectFrame(frame: Bitmap, updateOverlay: Boolean): FrameDetectionOutcome {
         val det = ModelManager.detector
-        if (det !is ModelManager.TFLiteYoloDetector) {
+        if (det == null || !ModelManager.isDetectorReady()) {
             if (updateOverlay) {
                 mainHandler.post { overlayView.clearLiveDetections() }
             }
@@ -1425,7 +1424,8 @@ class RegisterActivity : AppCompatActivity() {
         val mapped = detections.map {
             OverlayView.LiveDetection(
                 box = mapFrameRectToOverlay(it.box, frameW, frameH),
-                score = it.score
+                score = it.score,
+                quad = it.supportQuad?.map { point -> mapFramePointToOverlay(point, frameW, frameH) }
             )
         }
         val framing = overlayView.getFramingBox()
@@ -1490,6 +1490,22 @@ class RegisterActivity : AppCompatActivity() {
             box.right * scale + offsetX,
             box.bottom * scale + offsetY
         )
+    }
+
+    private fun mapFramePointToOverlay(point: PointF, frameW: Int, frameH: Int): PointF {
+        val previewRect = getPreviewContentRect(overlayView.width, overlayView.height)
+        val targetRect = if (previewRect.width() > 0f && previewRect.height() > 0f) {
+            previewRect
+        } else {
+            RectF(0f, 0f, overlayView.width.toFloat(), overlayView.height.toFloat())
+        }
+        val scale = minOf(
+            targetRect.width() / frameW.toFloat(),
+            targetRect.height() / frameH.toFloat()
+        )
+        val offsetX = targetRect.left + (targetRect.width() - frameW * scale) / 2f
+        val offsetY = targetRect.top + (targetRect.height() - frameH * scale) / 2f
+        return PointF(point.x * scale + offsetX, point.y * scale + offsetY)
     }
 
     // --- Helpers ---

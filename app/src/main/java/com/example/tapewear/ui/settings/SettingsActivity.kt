@@ -19,6 +19,8 @@ import com.example.tapewear.data.EmbeddingArchiveStore
 import com.example.tapewear.data.ExperimentStore
 import com.example.tapewear.data.SettingsStore
 import com.example.tapewear.ml.CrossAuthEngine
+import com.example.tapewear.ml.ModelManager
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
@@ -28,7 +30,10 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var switchUseML: MaterialSwitch
     private lateinit var inputMatchThreshold: TextInputEditText
+    private lateinit var toggleLocatorBackend: MaterialButtonToggleGroup
     private lateinit var inputYoloConf: TextInputEditText
+    private lateinit var inputTawLocConf: TextInputEditText
+    private lateinit var switchTawLocWarp: MaterialSwitch
     private lateinit var inputRegBurstMs: TextInputEditText
     private lateinit var inputRegFrames: TextInputEditText
     private lateinit var inputDayMotionMax: TextInputEditText
@@ -73,7 +78,10 @@ class SettingsActivity : AppCompatActivity() {
 
         switchUseML = findViewById(R.id.switchUseML)
         inputMatchThreshold = findViewById(R.id.inputMatchThreshold)
+        toggleLocatorBackend = findViewById(R.id.toggleLocatorBackend)
         inputYoloConf = findViewById(R.id.inputYoloConf)
+        inputTawLocConf = findViewById(R.id.inputTawLocConf)
+        switchTawLocWarp = findViewById(R.id.switchTawLocWarp)
         inputRegBurstMs = findViewById(R.id.inputRegBurstMs)
         inputRegFrames = findViewById(R.id.inputRegFrames)
         inputDayMotionMax = findViewById(R.id.inputDayMotionMax)
@@ -140,7 +148,16 @@ class SettingsActivity : AppCompatActivity() {
         suppressAutosaveSignals = true
         switchUseML.isChecked = AuthConfig.USE_ML_EMBEDDER
         inputMatchThreshold.setText(AuthConfig.MATCH_THRESHOLD.toString())
+        toggleLocatorBackend.check(
+            if (AuthConfig.LOCATOR_BACKEND == AuthConfig.LOCATOR_BACKEND_TAW_LOC) {
+                R.id.btnLocatorTawLoc
+            } else {
+                R.id.btnLocatorYolo
+            }
+        )
         inputYoloConf.setText(AuthConfig.YOLO_CONF_THRESHOLD.toString())
+        inputTawLocConf.setText(AuthConfig.TAWLOC_CONF_THRESHOLD.toString())
+        switchTawLocWarp.isChecked = AuthConfig.TAWLOC_USE_CANONICAL_WARP
         inputRegBurstMs.setText(AuthConfig.REG_BURST_MS.toString())
         inputRegFrames.setText(AuthConfig.REG_TARGET_FRAMES.toString())
         inputDayMotionMax.setText(Quality.DAY.motionMax.toString())
@@ -170,6 +187,7 @@ class SettingsActivity : AppCompatActivity() {
         listOf(
             inputMatchThreshold,
             inputYoloConf,
+            inputTawLocConf,
             inputRegBurstMs,
             inputRegFrames,
             inputDayMotionMax,
@@ -186,8 +204,13 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        toggleLocatorBackend.addOnButtonCheckedListener { _, _, isChecked ->
+            if (isChecked) scheduleAutosave()
+        }
+
         listOf(
             switchUseML,
+            switchTawLocWarp,
             switchHandsFree,
             switchExperimentMode,
             switchExperimentFlash
@@ -286,10 +309,14 @@ class SettingsActivity : AppCompatActivity() {
     ): Boolean {
         try {
             val parsed = parseInputs()
+            val previousLocatorBackend = AuthConfig.LOCATOR_BACKEND
 
             AuthConfig.USE_ML_EMBEDDER = switchUseML.isChecked
             AuthConfig.MATCH_THRESHOLD = parsed.matchThreshold
+            AuthConfig.LOCATOR_BACKEND = parsed.locatorBackend
             AuthConfig.YOLO_CONF_THRESHOLD = parsed.yoloConfThreshold
+            AuthConfig.TAWLOC_CONF_THRESHOLD = parsed.tawLocConfThreshold
+            AuthConfig.TAWLOC_USE_CANONICAL_WARP = switchTawLocWarp.isChecked
             AuthConfig.REG_BURST_MS = parsed.regBurstMs
             AuthConfig.REG_TARGET_FRAMES = parsed.regTargetFrames
 
@@ -311,6 +338,9 @@ class SettingsActivity : AppCompatActivity() {
             )
 
             SettingsStore.save(this)
+            if (previousLocatorBackend != AuthConfig.LOCATOR_BACKEND) {
+                ModelManager.resetDetector()
+            }
             if (refreshUi) {
                 populateFields()
             } else {
@@ -331,7 +361,11 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun saveFields() {
         cancelPendingAutosave()
-        val before = Pair(AuthConfig.MATCH_THRESHOLD, AuthConfig.YOLO_CONF_THRESHOLD)
+        val before = Triple(
+            AuthConfig.MATCH_THRESHOLD,
+            AuthConfig.YOLO_CONF_THRESHOLD,
+            AuthConfig.LOCATOR_BACKEND
+        )
         showSettingsStatus("Saving settings... Please wait.", showSpinner = true)
         setActionButtonsEnabled(false)
         val ok = saveFieldsSilently(showErrors = true, refreshUi = true)
@@ -340,9 +374,12 @@ class SettingsActivity : AppCompatActivity() {
             showSettingsStatus("Settings not saved", showSpinner = false, autoHideMs = 1500L)
             return
         }
-        val changed = before.first != AuthConfig.MATCH_THRESHOLD || before.second != AuthConfig.YOLO_CONF_THRESHOLD
+        val changed = before.first != AuthConfig.MATCH_THRESHOLD ||
+            before.second != AuthConfig.YOLO_CONF_THRESHOLD ||
+            before.third != AuthConfig.LOCATOR_BACKEND
+        val locatorLabel = if (AuthConfig.LOCATOR_BACKEND == AuthConfig.LOCATOR_BACKEND_TAW_LOC) "TAW-Loc" else "YOLO"
         val msg = if (changed) {
-            "Saved (match=${"%.2f".format(Locale.US, AuthConfig.MATCH_THRESHOLD)}, yolo=${"%.2f".format(Locale.US, AuthConfig.YOLO_CONF_THRESHOLD)})"
+            "Saved (match=${"%.2f".format(Locale.US, AuthConfig.MATCH_THRESHOLD)}, locator=$locatorLabel)"
         } else {
             "Settings saved"
         }
@@ -356,7 +393,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private data class ParsedInputs(
         val matchThreshold: Float,
+        val locatorBackend: String,
         val yoloConfThreshold: Float,
+        val tawLocConfThreshold: Float,
         val regBurstMs: Long,
         val regTargetFrames: Int,
         val dayMotionMax: Double,
@@ -371,7 +410,13 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun parseInputs(): ParsedInputs {
         val match = parseUnitThreshold(inputMatchThreshold, "Match Threshold")
+        val locatorBackend = if (toggleLocatorBackend.checkedButtonId == R.id.btnLocatorTawLoc) {
+            AuthConfig.LOCATOR_BACKEND_TAW_LOC
+        } else {
+            AuthConfig.LOCATOR_BACKEND_YOLO
+        }
         val yolo = parseUnitThreshold(inputYoloConf, "YOLO Confidence")
+        val tawLoc = parseUnitThreshold(inputTawLocConf, "TAW-Loc Confidence")
 
         val burstMs = parseLong(inputRegBurstMs, "Burst Duration (ms)").coerceAtLeast(500L)
         val regFrames = parseInt(inputRegFrames, "Target Good Frames").coerceAtLeast(1)
@@ -387,7 +432,9 @@ class SettingsActivity : AppCompatActivity() {
 
         return ParsedInputs(
             matchThreshold = match,
+            locatorBackend = locatorBackend,
             yoloConfThreshold = yolo,
+            tawLocConfThreshold = tawLoc,
             regBurstMs = burstMs,
             regTargetFrames = regFrames,
             dayMotionMax = dayMotion,

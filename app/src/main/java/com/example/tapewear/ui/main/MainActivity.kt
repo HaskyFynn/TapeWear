@@ -25,8 +25,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : AppCompatActivity() {
+    private val modelInitRunning = AtomicBoolean(false)
 
     private val cameraPermLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -45,6 +47,57 @@ class MainActivity : AppCompatActivity() {
             model.contains("sdk") ||
             product.contains("sdk")
         return if (isEmulator) 1 else 2
+    }
+
+    private fun ensureModelsInitializedIfNeeded() {
+        if (ModelManager.isDetectorReady() &&
+            ModelManager.detectorMatchesConfig() &&
+            ModelManager.mlEmbedder != null
+        ) {
+            Log.i("TapeWear_Main", "Reusing existing AI model instances.")
+            return
+        }
+        if (!modelInitRunning.compareAndSet(false, true)) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val t0 = System.currentTimeMillis()
+            val threads = modelThreads()
+            try {
+                synchronized(ModelManager) {
+                    ModelManager.ensureConfiguredDetector(
+                        context = applicationContext,
+                        numThreads = threads
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(
+                    "TapeWear_Main",
+                    "Failed to init ${ModelManager.configuredDetectorLabel()}: ${e.message}"
+                )
+                ModelManager.resetDetector()
+            }
+
+            try {
+                synchronized(ModelManager) {
+                    if (ModelManager.mlEmbedder == null) {
+                        ModelManager.mlEmbedder = TfLiteEmbedder(
+                            context = applicationContext,
+                            assetName = "tapewear_embedder.tflite",
+                            numThreads = threads
+                        )
+                    }
+                }
+            } catch(e: Exception) {
+                Log.e("TapeWear_Main", "Failed to init ML Siamese Embedder: ${e.message}")
+            }
+
+            val dt = System.currentTimeMillis() - t0
+            Log.i(
+                "TapeWear_Main",
+                "AI models initialized in ${dt} ms (threads=$threads, detector=${ModelManager.activeDetectorName()})"
+            )
+            modelInitRunning.set(false)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,38 +123,8 @@ class MainActivity : AppCompatActivity() {
             cameraPermLauncher.launch(Manifest.permission.CAMERA)
         }
 
-        // --- Global YOLO detector init (once, in background) ---
-        if (ModelManager.detector == null) {
-            CoroutineScope(Dispatchers.IO).launch {
-                val t0 = System.currentTimeMillis()
-                val threads = modelThreads()
-                try {
-                    ModelManager.detector = ModelManager.TFLiteYoloDetector(
-                        context = applicationContext,
-                        assetName = "best_float32.tflite",
-                        numThreads = threads
-                    )
-                } catch(e: Exception) {
-                    Log.e("TapeWear_Main", "Failed to init YOLO: ${e.message}")
-                    ModelManager.detector = null
-                }
-                
-                try {
-                    ModelManager.mlEmbedder = TfLiteEmbedder(
-                        context = applicationContext,
-                        assetName = "tapewear_embedder.tflite",
-                        numThreads = threads
-                    )
-                } catch(e: Exception) {
-                    Log.e("TapeWear_Main", "Failed to init ML Siamese Embedder: ${e.message}")
-                }
-                
-                val dt = System.currentTimeMillis() - t0
-                Log.i("TapeWear_Main", "AI Models initialized in ${dt} ms (threads=$threads)")
-            }
-        } else {
-            Log.i("TapeWear_Main", "Reusing existing AI model instances.")
-        }
+        // --- Global detector/embedder init (once, in background) ---
+        ensureModelsInitializedIfNeeded()
 
         findViewById<Button>(R.id.btnGoRegister).setOnClickListener {
             Log.d("TapeWear_Main", "Navigate: RegisterActivity")
@@ -122,6 +145,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         SettingsStore.load(this)
+        ensureModelsInitializedIfNeeded()
         updateSlotsStatus()
         updateExperimentBanner()
     }

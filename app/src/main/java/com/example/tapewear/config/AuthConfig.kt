@@ -9,11 +9,16 @@ object AuthConfig {
     // ---- Scoring ----
     const val DEFAULT_MATCH_THRESHOLD = 0.80f
     const val DEFAULT_YOLO_CONF_THRESHOLD = 0.50f
+    const val DEFAULT_TAWLOC_CONF_THRESHOLD = 0.95f
+    const val DEFAULT_TAWLOC_USE_CANONICAL_WARP = true
     const val DEFAULT_USE_ML_EMBEDDER = false
     const val DEFAULT_REG_BURST_MS = 10000L
     const val DEFAULT_REG_TARGET_FRAMES = 10
     const val DEFAULT_HANDS_FREE_ENABLED = false
     const val DEFAULT_HANDS_FREE_CONSECUTIVE_HITS = 3
+    const val LOCATOR_BACKEND_YOLO = "yolo"
+    const val LOCATOR_BACKEND_TAW_LOC = "taw_loc"
+    const val DEFAULT_LOCATOR_BACKEND = LOCATOR_BACKEND_YOLO
 
     /** Minimum cosine similarity for a match verdict. */
     var MATCH_THRESHOLD = DEFAULT_MATCH_THRESHOLD
@@ -22,9 +27,21 @@ object AuthConfig {
     /** Minimum number of successfully scored frames to issue a verdict. */
     var MIN_SCORED_FRAMES = 1
 
-    // ---- YOLO Detection ----
+    // ---- Localization ----
+    /** Selects the on-device localizer: generic YOLO bbox or TAW-Loc support mask. */
+    var LOCATOR_BACKEND = DEFAULT_LOCATOR_BACKEND
     /** Minimum objectness confidence for YOLO detections. */
     var YOLO_CONF_THRESHOLD = DEFAULT_YOLO_CONF_THRESHOLD
+    /** Minimum presence confidence for TAW-Loc detections. */
+    var TAWLOC_CONF_THRESHOLD = DEFAULT_TAWLOC_CONF_THRESHOLD
+    /** If true, TAW-Loc detections are perspective-warped before embedding. */
+    var TAWLOC_USE_CANONICAL_WARP = DEFAULT_TAWLOC_USE_CANONICAL_WARP
+    /** Canonical patch size used before the selected embedder performs its own resize. */
+    const val TAWLOC_CANONICAL_WARP_SIZE = 192
+    /** Mask probability threshold used to recover the TAW-Loc support component. */
+    var TAWLOC_MASK_THRESHOLD = 0.50f
+    /** Minimum normalized support-mask area accepted from TAW-Loc output. */
+    var TAWLOC_MIN_MASK_AREA_RATIO = 0.001f
     /** Minimum normalized box area (w*h in [0..1]) accepted from YOLO output. */
     var YOLO_MIN_BOX_AREA_RATIO = 0.01f
     /** IoU threshold used by YOLO post-NMS filtering. */

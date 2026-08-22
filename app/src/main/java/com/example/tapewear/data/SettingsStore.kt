@@ -11,7 +11,11 @@ object SettingsStore {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
         AuthConfig.MATCH_THRESHOLD = prefs.getFloat("MATCH_THRESHOLD", AuthConfig.DEFAULT_MATCH_THRESHOLD)
+        AuthConfig.LOCATOR_BACKEND = prefs.getString("LOCATOR_BACKEND", AuthConfig.DEFAULT_LOCATOR_BACKEND)
+            ?: AuthConfig.DEFAULT_LOCATOR_BACKEND
         AuthConfig.YOLO_CONF_THRESHOLD = prefs.getFloat("YOLO_CONF_THRESHOLD", AuthConfig.DEFAULT_YOLO_CONF_THRESHOLD)
+        AuthConfig.TAWLOC_CONF_THRESHOLD = prefs.getFloat("TAWLOC_CONF_THRESHOLD", AuthConfig.DEFAULT_TAWLOC_CONF_THRESHOLD)
+        AuthConfig.TAWLOC_USE_CANONICAL_WARP = prefs.getBoolean("TAWLOC_USE_CANONICAL_WARP", AuthConfig.DEFAULT_TAWLOC_USE_CANONICAL_WARP)
         AuthConfig.USE_ML_EMBEDDER = prefs.getBoolean("USE_ML_EMBEDDER", AuthConfig.DEFAULT_USE_ML_EMBEDDER)
         AuthConfig.REG_BURST_MS = prefs.getLong("REG_BURST_MS", AuthConfig.DEFAULT_REG_BURST_MS)
         AuthConfig.REG_TARGET_FRAMES = prefs.getInt("REG_TARGET_FRAMES", AuthConfig.DEFAULT_REG_TARGET_FRAMES)
@@ -35,7 +39,10 @@ object SettingsStore {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putFloat("MATCH_THRESHOLD", AuthConfig.MATCH_THRESHOLD)
+            .putString("LOCATOR_BACKEND", AuthConfig.LOCATOR_BACKEND)
             .putFloat("YOLO_CONF_THRESHOLD", AuthConfig.YOLO_CONF_THRESHOLD)
+            .putFloat("TAWLOC_CONF_THRESHOLD", AuthConfig.TAWLOC_CONF_THRESHOLD)
+            .putBoolean("TAWLOC_USE_CANONICAL_WARP", AuthConfig.TAWLOC_USE_CANONICAL_WARP)
             .putBoolean("USE_ML_EMBEDDER", AuthConfig.USE_ML_EMBEDDER)
             .putLong("REG_BURST_MS", AuthConfig.REG_BURST_MS)
             .putInt("REG_TARGET_FRAMES", AuthConfig.REG_TARGET_FRAMES)
@@ -55,7 +62,10 @@ object SettingsStore {
 
     fun resetToDefaults(context: Context) {
         AuthConfig.MATCH_THRESHOLD = AuthConfig.DEFAULT_MATCH_THRESHOLD
+        AuthConfig.LOCATOR_BACKEND = AuthConfig.DEFAULT_LOCATOR_BACKEND
         AuthConfig.YOLO_CONF_THRESHOLD = AuthConfig.DEFAULT_YOLO_CONF_THRESHOLD
+        AuthConfig.TAWLOC_CONF_THRESHOLD = AuthConfig.DEFAULT_TAWLOC_CONF_THRESHOLD
+        AuthConfig.TAWLOC_USE_CANONICAL_WARP = AuthConfig.DEFAULT_TAWLOC_USE_CANONICAL_WARP
         AuthConfig.USE_ML_EMBEDDER = AuthConfig.DEFAULT_USE_ML_EMBEDDER
         AuthConfig.REG_BURST_MS = AuthConfig.DEFAULT_REG_BURST_MS
         AuthConfig.REG_TARGET_FRAMES = AuthConfig.DEFAULT_REG_TARGET_FRAMES

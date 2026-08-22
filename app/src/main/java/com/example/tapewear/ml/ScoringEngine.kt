@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
-import com.example.tapewear.BoxOps
 import com.example.tapewear.config.AuthConfig
 import com.example.tapewear.data.EnrollmentStore
 import com.example.tapewear.util.MathUtils
@@ -77,16 +76,21 @@ object ScoringEngine {
                 continue
             }
             val chosen = chooseRoi(dets)
-            val roi = BoxOps.clamp(chosen.box, bmp.width, bmp.height)
-            val roiRect = Rect(
-                roi.left.toInt(),
-                roi.top.toInt(),
-                roi.right.toInt(),
-                roi.bottom.toInt()
-            )
+            val prepared = ModelManager.embedderInputBitmap(bmp, chosen)
+            if (prepared == null) {
+                Log.d(TAG, "scoreFromBitmaps: could not prepare embedder input for frame#$idx")
+                idx++
+                continue
+            }
+            val embedSrc = prepared.first
+            val roiRect = prepared.second
 
             val tEmb0 = SystemClock.elapsedRealtime()
-            val emb = embedder.embed(bmp, roiRect)
+            val emb = try {
+                embedder.embed(embedSrc, roiRect)
+            } finally {
+                if (embedSrc !== bmp && !embedSrc.isRecycled) embedSrc.recycle()
+            }
             val tEmb1 = SystemClock.elapsedRealtime()
             totalEmbedMs += tEmb1 - tEmb0
 
@@ -101,7 +105,8 @@ object ScoringEngine {
             val tCos1 = SystemClock.elapsedRealtime()
             totalCosineMs += tCos1 - tCos0
 
-            Log.d(TAG, "frame#$idx roi=$roiRect det=${tDet1-tDet0}ms emb=${tEmb1-tEmb0}ms sim=%.4f".format(sim))
+            val source = if (chosen.supportQuad != null && AuthConfig.TAWLOC_USE_CANONICAL_WARP) "canonical" else "roi"
+            Log.d(TAG, "frame#$idx source=$source roi=$roiRect det=${tDet1-tDet0}ms emb=${tEmb1-tEmb0}ms sim=%.4f".format(sim))
 
             simsPerFrame.add(sim)
             idx++
@@ -158,17 +163,22 @@ object ScoringEngine {
                 continue
             }
             val chosen = chooseRoi(dets)
-            val roi = BoxOps.clamp(chosen.box, bmp.width, bmp.height)
-            val roiRect = Rect(
-                roi.left.toInt(),
-                roi.top.toInt(),
-                roi.right.toInt(),
-                roi.bottom.toInt()
-            )
+            val prepared = ModelManager.embedderInputBitmap(bmp, chosen)
+            if (prepared == null) {
+                Log.d(TAG, "enrollFromBitmaps: could not prepare embedder input for frame#$idx")
+                continue
+            }
+            val embedSrc = prepared.first
+            val roiRect = prepared.second
             val t0 = SystemClock.elapsedRealtime()
-            val emb = embedder.embed(bmp, roiRect)
+            val emb = try {
+                embedder.embed(embedSrc, roiRect)
+            } finally {
+                if (embedSrc !== bmp && !embedSrc.isRecycled) embedSrc.recycle()
+            }
             val t1 = SystemClock.elapsedRealtime()
-            Log.d(TAG, "enroll frame#$idx roi=$roiRect embDim=${emb.size} time=${t1 - t0}ms")
+            val source = if (chosen.supportQuad != null && AuthConfig.TAWLOC_USE_CANONICAL_WARP) "canonical" else "roi"
+            Log.d(TAG, "enroll frame#$idx source=$source roi=$roiRect embDim=${emb.size} time=${t1 - t0}ms")
             embList.add(emb)
             if (embList.size >= maxEmbeds) break
         }
